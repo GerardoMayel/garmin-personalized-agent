@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garmin-api-deployment
+  labels:
+    app: garmin-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: garmin-api
+  template:
+    metadata:
+      labels:
+        app: garmin-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/gerardomayel/garmin-personalized-agent/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: garmin-secrets
+            - configMapRef:
+                name: garmin-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20

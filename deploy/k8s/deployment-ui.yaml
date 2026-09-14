@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garmin-ui-deployment
+  labels:
+    app: garmin-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garmin-ui
+  template:
+    metadata:
+      labels:
+        app: garmin-ui
+    spec:
+      containers:
+        - name: ui
+          image: ghcr.io/gerardomayel/garmin-personalized-agent/ui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+          env:
+            - name: API_BASE_URL
+              value: "http://garmin-api-service:8000"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"

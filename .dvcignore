@@ -1,0 +1,16 @@
+# Add patterns of files dvc should ignore, which could improve
+# the performance. Learn more at
+# https://dvc.org/doc/user-guide/project-structure/dvcignore-files
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Git
+.git
+.gitignore
+
+# IDEs
+.vscode
+.idea
+.DS_Store

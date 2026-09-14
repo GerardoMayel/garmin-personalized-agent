@@ -1,0 +1,94 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables
+.env*.local
+.env.production
+.env.development
+
+# Garmin credentials & token storage
+.garmin_tokens/
+garmin_tokens.json
+credentials.json
+
+# Raw and processed data (managed via DVC)
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+/data/knowledge_base/*
+!/data/knowledge_base/.gitkeep
+/data/multimodal/*
+!/data/multimodal/.gitkeep
+/data/training/*
+!/data/training/.gitkeep
+*.fit
+*.parquet
+
+# Model checkpoints & artifacts
+checkpoints/
+models/
+output/
+wandb/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Vector DB local directories
+qdrant_storage/
+chroma_db/
+.chroma/
+
+# IDE & Editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# DVC local storage
+.dvc/cache
+.dvc/tmp

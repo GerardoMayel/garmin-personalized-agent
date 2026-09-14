@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Vector Database: Qdrant
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    container_name: garmin_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__ENABLE_STATIC_CONTENT=0
+
+  # Backend: FastAPI + LangGraph agent execution engine
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.api
+    container_name: garmin_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - VECTOR_DB_TYPE=qdrant
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GARMIN_EMAIL=${GARMIN_EMAIL}
+      - GARMIN_PASSWORD=${GARMIN_PASSWORD}
+    volumes:
+      - ../data:/app/data
+      - ../configs:/app/configs
+    depends_on:
+      - qdrant
+
+  # Frontend: Streamlit Multi-page interactive UI
+  ui:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.ui
+    container_name: garmin_ui
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000
+      - ENVIRONMENT=production
+    volumes:
+      - ../data:/app/data
+    depends_on:
+      - api
+
+volumes:
+  qdrant_storage:
+    driver: local

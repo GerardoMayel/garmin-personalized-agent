@@ -1,0 +1,36 @@
+# =====================================================================
+# Base System Configuration
+# =====================================================================
+
+system:
+  app_name: "Garmin Personal Insight Agent"
+  version: "0.1.0"
+  environment: "development"
+  debug: false
+  random_seed: 42
+
+paths:
+  data_dir: "data"
+  raw_data: "data/raw"
+  processed_data: "data/processed"
+  knowledge_base: "data/knowledge_base"
+  multimodal: "data/multimodal"
+  training: "data/training"
+  checkpoints: "checkpoints"
+
+garmin_sync:
+  default_days_back: 7
+  token_store_dir: "~/.garmin_tokens"
+  fetch_activities: true
+  fetch_sleep: true
+  fetch_hrv: true
+  fetch_body_battery: true
+  fetch_stress: true
+  export_format: "parquet"
+
+logging:
+  level: "INFO"
+  structured_json: true
+  log_file: "logs/garmin_agent.log"
+  rotation: "10 MB"
+  retention: "14 days"
