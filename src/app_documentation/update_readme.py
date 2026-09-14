@@ -61,6 +61,7 @@ TOP_LEVEL_ORDER: List[str] = [
     "src",
     "tests",
     ".dvc",
+    ".agents",
     ".dvcignore",
     ".env.example",
     ".gitignore",
@@ -68,6 +69,7 @@ TOP_LEVEL_ORDER: List[str] = [
     ".pre-commit-config.yaml",
     "pyproject.toml",
     "uv.lock",
+    "AGENTS.md",
     "README.md",
 ]
 

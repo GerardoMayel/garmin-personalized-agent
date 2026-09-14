@@ -167,6 +167,10 @@ garmin-personal-insight-agent/
 │   ├── .gitignore
 │   └── config
 │
+├── .agents/
+│   └── rules/
+│       └── git-commits.md
+│
 ├── .dvcignore
 ├── .env.example
 ├── .gitignore
@@ -174,4 +178,5 @@ garmin-personal-insight-agent/
 ├── .pre-commit-config.yaml
 ├── pyproject.toml
 ├── uv.lock
+├── AGENTS.md
 └── README.md
