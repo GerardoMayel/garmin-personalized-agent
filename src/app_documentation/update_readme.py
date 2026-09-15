@@ -36,10 +36,12 @@ DEFAULT_EXCLUDED_DIRS: Set[str] = {
     "build",
     "dist",
     ".eggs",
+    "logs",
 }
 
 DEFAULT_EXCLUDED_FILES: Set[str] = {
     ".DS_Store",
+    ".env",
     "*.pyc",
     "*.pyo",
     "*.swp",
@@ -51,6 +53,15 @@ DEFAULT_EXCLUDED_FILES: Set[str] = {
 # Subdirectories under which certain files should be hidden (e.g. .gitkeep in empty tracking dirs)
 HIDE_GITKEEP: bool = True
 
+# Directories that should not expand their dynamic contents in the tree (e.g. data/raw/ containing daily sync dumps)
+COLLAPSED_DIRS: Set[str] = {
+    "data/raw",
+    "data/processed",
+    "data/multimodal",
+    "data/knowledge_base",
+    "data/training",
+}
+
 # Standard top-level ordering to maintain clean logical grouping in README
 TOP_LEVEL_ORDER: List[str] = [
     ".github",
@@ -60,6 +71,7 @@ TOP_LEVEL_ORDER: List[str] = [
     "notebooks",
     "src",
     "tests",
+    "specs",
     ".dvc",
     ".agents",
     ".dvcignore",
@@ -239,8 +251,12 @@ def generate_tree_lines(
 
     lines.append(line)
 
-    # Recurse into subdirectories
+    # Recurse into subdirectories (unless directory is collapsed like data/raw/)
     if dir_path.is_dir():
+        rel_path = dir_path.relative_to(repo_root).as_posix()
+        if rel_path in COLLAPSED_DIRS:
+            return lines
+
         new_prefix = prefix + ("    " if is_last else "│   ")
         sub_children = build_tree_nodes(
             dir_path,

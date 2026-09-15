@@ -29,13 +29,9 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
-# Configure readable console output
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger("GarminSample")
+from src.common.logger import get_logger
+
+logger = get_logger("GarminSample")
 
 
 def load_credentials(env_file: Optional[Path] = None) -> tuple[str, str, Path]:
