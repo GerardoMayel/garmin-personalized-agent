@@ -11,7 +11,7 @@ import json
 import os
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from garminconnect import (
@@ -33,12 +33,12 @@ class GarminDataIngestor:
 
     def __init__(
         self,
-        email: Optional[str] = None,
-        password: Optional[str] = None,
+        email: str | None = None,
+        password: str | None = None,
         raw_data_dir: str = "data/raw",
-        tokenstore_dir: Optional[str] = None,
-        client: Optional[Any] = None,
-        db: Optional[GarminDatabase] = None,
+        tokenstore_dir: str | None = None,
+        client: Any | None = None,
+        db: GarminDatabase | None = None,
     ) -> None:
         self.email = email or os.getenv("GARMIN_EMAIL")
         self.password = password or os.getenv("GARMIN_PASSWORD")
@@ -78,18 +78,18 @@ class GarminDataIngestor:
             logger.error(f"Error de conexión con Garmin Connect: {e}")
             raise
 
-    def _save_json(self, data: Dict[str, Any], output_path: Path) -> None:
+    def _save_json(self, data: dict[str, Any], output_path: Path) -> None:
         """Guarda un diccionario como archivo JSON formateado con identación."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)
 
-    def sync_daily_biometrics(self, target_date: date) -> Dict[str, bool]:
+    def sync_daily_biometrics(self, target_date: date) -> dict[str, bool]:
         """Descarga métricas biomédicas para una fecha y las persiste en JSON y SQLite."""
         date_str = target_date.isoformat()
         day_dir = self.raw_data_dir / date_str
         logger.info(f"Sincronizando métricas para la fecha: {date_str}")
-        results: Dict[str, bool] = {}
+        results: dict[str, bool] = {}
 
         # 1. Sueño detallado
         try:
@@ -143,11 +143,11 @@ class GarminDataIngestor:
 
         return results
 
-    def sync_activities(self, limit: int = 10, download_fit: bool = True) -> List[Dict[str, Any]]:
+    def sync_activities(self, limit: int = 10, download_fit: bool = True) -> list[dict[str, Any]]:
         """Descarga el resumen de actividades recientes, archivos .fit y actualiza la base de datos."""
         logger.info(f"Obteniendo las últimas {limit} actividades...")
         activities = self.client.get_activities(0, limit)
-        downloaded: List[Dict[str, Any]] = []
+        downloaded: list[dict[str, Any]] = []
 
         for act in activities:
             act_id = act.get("activityId")
@@ -169,13 +169,8 @@ class GarminDataIngestor:
                     logger.info(
                         f"Descargando archivo .fit de la actividad {act_id} ({act.get('activityName')})"
                     )
-                    dl_fmt = getattr(
-                        getattr(self.client, "ActivityDownloadFormat", None),
-                        "ORIGINAL",
-                        getattr(Garmin, "ActivityDownloadFormat", None).ORIGINAL
-                        if hasattr(Garmin, "ActivityDownloadFormat")
-                        else 1,
-                    )
+                    dl_fmt_cls = getattr(Garmin, "ActivityDownloadFormat", None)
+                    dl_fmt = getattr(dl_fmt_cls, "ORIGINAL", 1) if dl_fmt_cls else 1
                     fit_data = self.client.download_activity(act_id, dl_fmt=dl_fmt)
                     with open(fit_path, "wb") as f:
                         f.write(fit_data)
@@ -201,5 +196,6 @@ class GarminDataIngestor:
 
 
 if __name__ == "__main__":
-    ingestor = GarminDataIngestor()
-    ingestor.run_sync_window(days_back=7, sync_fit=True)
+    from src.ingestion.sync_pipeline import main
+
+    main()

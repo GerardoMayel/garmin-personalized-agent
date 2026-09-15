@@ -10,10 +10,11 @@ import argparse
 import json
 import os
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ DEFAULT_DB_PATH = Path("data/processed/garmin_history.db")
 class GarminDatabase:
     """Historical SQLite relational store for daily biometrics and activities."""
 
-    def __init__(self, db_path: Optional[str | Path] = None) -> None:
+    def __init__(self, db_path: str | Path | None = None) -> None:
         env_db_path = os.getenv("GARMIN_DB_PATH")
         self.db_path = Path(db_path or env_db_path or DEFAULT_DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,7 +184,7 @@ class GarminDatabase:
     # Upsert Operations (Idempotent)
     # -------------------------------------------------------------------------
 
-    def upsert_daily_summary(self, data: Dict[str, Any]) -> bool:
+    def upsert_daily_summary(self, data: dict[str, Any]) -> bool:
         """Upsert daily summary record from Garmin user_summary JSON."""
         date_str = data.get("calendarDate")
         if not date_str:
@@ -233,7 +234,7 @@ class GarminDatabase:
             )
         return True
 
-    def upsert_sleep(self, data: Dict[str, Any]) -> bool:
+    def upsert_sleep(self, data: dict[str, Any]) -> bool:
         """Upsert sleep record from Garmin sleep JSON."""
         dto = data.get("dailySleepDTO") or data
         date_str = dto.get("calendarDate")
@@ -296,7 +297,7 @@ class GarminDatabase:
             )
         return True
 
-    def upsert_hrv(self, data: Dict[str, Any]) -> bool:
+    def upsert_hrv(self, data: dict[str, Any]) -> bool:
         """Upsert HRV record from Garmin hrv JSON."""
         summary = data.get("hrvSummary") or data
         date_str = summary.get("calendarDate")
@@ -340,7 +341,7 @@ class GarminDatabase:
             )
         return True
 
-    def upsert_stress(self, data: Dict[str, Any]) -> bool:
+    def upsert_stress(self, data: dict[str, Any]) -> bool:
         """Upsert daily stress record from Garmin stress JSON."""
         date_str = data.get("calendarDate")
         if not date_str:
@@ -413,9 +414,7 @@ class GarminDatabase:
             )
         return True
 
-    def upsert_activity(
-        self, data: Dict[str, Any], fit_zip_path: Optional[str] = None
-    ) -> bool:
+    def upsert_activity(self, data: dict[str, Any], fit_zip_path: str | None = None) -> bool:
         """Upsert activity summary and local .fit.zip location."""
         act_id = data.get("activityId")
         if not act_id:
@@ -477,7 +476,7 @@ class GarminDatabase:
     # Batch Backfill from data/raw/
     # -------------------------------------------------------------------------
 
-    def ingest_raw_directory(self, raw_dir: Path = Path("data/raw")) -> Dict[str, int]:
+    def ingest_raw_directory(self, raw_dir: Path = Path("data/raw")) -> dict[str, int]:
         """Scan data/raw/ and backfill all JSON snapshots into SQLite."""
         stats = {
             "daily_summaries": 0,
@@ -569,13 +568,11 @@ class GarminDatabase:
     # Analytical Query Helpers
     # -------------------------------------------------------------------------
 
-    def get_biometrics_timeseries(
-        self, start_date: str, end_date: str
-    ) -> List[Dict[str, Any]]:
+    def get_biometrics_timeseries(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
         """Retrieve unified daily biometric timeline for ML and plotting."""
         with self.get_connection() as conn:
             query = """
-                SELECT 
+                SELECT
                     d.calendar_date,
                     d.total_steps,
                     d.resting_heart_rate,
@@ -601,7 +598,7 @@ class GarminDatabase:
             cursor = conn.execute(query, (start_date, end_date))
             return [dict(row) for row in cursor.fetchall()]
 
-    def count_records(self) -> Dict[str, int]:
+    def count_records(self) -> dict[str, int]:
         """Count rows in all tables."""
         tables = [
             "daily_summaries",
@@ -620,9 +617,7 @@ class GarminDatabase:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Garmin SQLite Historical Database Manager."
-    )
+    parser = argparse.ArgumentParser(description="Garmin SQLite Historical Database Manager.")
     parser.add_argument(
         "--backfill",
         action="store_true",

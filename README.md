@@ -215,7 +215,8 @@ garmin-personal-insight-agent/
 │       ├── test_database.py
 │       ├── test_garmin_client.py
 │       ├── test_logger.py
-│       └── test_sample_sync.py
+│       ├── test_sample_sync.py
+│       └── test_sync_pipeline.py
 │
 ├── specs/
 │   ├── 00_system_architecture.md
@@ -243,7 +244,6 @@ garmin-personal-insight-agent/
 ├── AGENTS.md
 └── README.md
 
----
 
 ## ⚡ Guía de Inicio Rápido
 

@@ -215,7 +215,8 @@ garmin-personal-insight-agent/
 │       ├── test_database.py
 │       ├── test_garmin_client.py
 │       ├── test_logger.py
-│       └── test_sample_sync.py
+│       ├── test_sample_sync.py
+│       └── test_sync_pipeline.py
 │
 ├── specs/
 │   ├── 00_system_architecture.md
@@ -243,7 +244,6 @@ garmin-personal-insight-agent/
 ├── AGENTS.md
 └── README.md
 
----
 
 ## ⚡ Guía de Inicio Rápido
 
@@ -270,143 +270,4 @@ uv run python -m src.ingestion.garmin_sync
 ```
 
 ### 4. Ejecución de Tests Automatizados
-```bash
-uv run pytest tests/unit/ -v
 ```
-
-## Estructura del Proyecto
-
-garmin-personal-insight-agent/
-├── .github/
-│   └── workflows/
-│       ├── cd.yml
-│       ├── ci.yml
-│       └── data_sync_cron.yml
-│
-├── deploy/
-│   ├── docker/
-│   │   ├── Dockerfile.api
-│   │   └── Dockerfile.ui
-│   ├── k8s/
-│   │   ├── deployment-api.yaml
-│   │   ├── deployment-ui.yaml
-│   │   └── service.yaml
-│   └── docker-compose.yml
-│
-├── configs/
-│   ├── agent_graph_config.yaml
-│   ├── base_config.yaml
-│   ├── fine_tuning_lora.yaml
-│   └── rag_settings.yaml
-│
-├── data/
-│   ├── knowledge_base/
-│   ├── multimodal/
-│   ├── processed/
-│   ├── raw/
-│   └── training/
-│
-├── notebooks/
-│   ├── 01_garmin_data_exploration.ipynb
-│   ├── 02_time_series_causality_lab.ipynb
-│   ├── 03_rag_chunking_and_eval.ipynb
-│   └── 04_vlm_hypnogram_analysis.ipynb
-│
-├── src/
-│   ├── agents/
-│   │   ├── __init__.py
-│   │   ├── edges.py
-│   │   ├── graph.py
-│   │   ├── nodes.py
-│   │   ├── state.py
-│   │   └── tools.py
-│   ├── analytics/
-│   │   ├── __init__.py
-│   │   ├── anomaly_detection.py
-│   │   ├── causality_engine.py
-│   │   └── time_series_models.py
-│   ├── api/
-│   │   ├── __init__.py
-│   │   ├── main.py
-│   │   └── routes.py
-│   ├── app_documentation/
-│   │   ├── __init__.py
-│   │   ├── newreadme.md
-│   │   ├── project_structure.txt
-│   │   ├── run_map.sh
-│   │   └── update_readme.py
-│   ├── common/
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── logger.py
-│   │   └── schemas.py
-│   ├── ingestion/
-│   │   ├── __init__.py
-│   │   ├── fit_decoder.py
-│   │   ├── garmin_client.py
-│   │   ├── garmin_sync.py
-│   │   ├── sample_sync.py
-│   │   └── sync_pipeline.py
-│   ├── rag/
-│   │   ├── __init__.py
-│   │   ├── loader_and_chunker.py
-│   │   ├── reranker.py
-│   │   ├── retriever.py
-│   │   └── vector_store.py
-│   ├── training/
-│   │   ├── __init__.py
-│   │   ├── dataset_builder.py
-│   │   ├── evaluate_model.py
-│   │   └── train_lora.py
-│   ├── ui/
-│   │   ├── components/
-│   │   │   ├── charts.py
-│   │   │   ├── chat_interface.py
-│   │   │   └── maps.py
-│   │   ├── pages/
-│   │   │   ├── 1_📊_Recovery_&_Sleep.py
-│   │   │   ├── 2_📈_Time_Series_&_ML.py
-│   │   │   ├── 3_🖼️_VLM_Inspection.py
-│   │   │   └── 4_🤖_Agent_Chat.py
-│   │   └── app.py
-│   ├── vision/
-│   │   ├── __init__.py
-│   │   ├── chart_renderer.py
-│   │   └── vlm_analyzer.py
-│   └── __init__.py
-│
-├── tests/
-│   ├── eval/
-│   ├── integration/
-│   └── unit/
-│       ├── test_database.py
-│       ├── test_garmin_client.py
-│       ├── test_logger.py
-│       └── test_sample_sync.py
-│
-├── specs/
-│   ├── 00_system_architecture.md
-│   ├── 01_data_schemas_spec.md
-│   ├── 02_ingestion_spec.md
-│   ├── 03_time_series_spec.md
-│   ├── 04_rag_spec.md
-│   └── 05_agent_graph_spec.md
-│
-├── .dvc/
-│   ├── .gitignore
-│   └── config
-│
-├── .agents/
-│   └── rules/
-│       └── git-commits.md
-│
-├── .dvcignore
-├── .env.example
-├── .gitignore
-├── LICENSE
-├── .pre-commit-config.yaml
-├── pyproject.toml
-├── uv.lock
-├── AGENTS.md
-└── README.md

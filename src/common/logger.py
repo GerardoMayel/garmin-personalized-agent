@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -24,23 +24,23 @@ class InterceptHandler(logging.Handler):
     """Intercept standard library logging messages and redirect to Loguru."""
 
     def emit(self, record: logging.LogRecord) -> None:
+        level: str | int
         try:
             level = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
 
-        frame, depth = logging.currentframe(), 2
+        frame: Any = logging.currentframe()
+        depth = 2
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
 def configure_logging(
-    log_level: Optional[str] = None,
+    log_level: str | None = None,
     log_dir: str = "logs",
     log_filename: str = "garmin_agent.log",
     rotation: str = "10 MB",
@@ -52,7 +52,8 @@ def configure_logging(
     if _IS_CONFIGURED and not force_reconfigure:
         return
 
-    level = (log_level or os.getenv("LOG_LEVEL", "INFO")).upper()
+    raw_level = log_level or os.getenv("LOG_LEVEL") or "INFO"
+    level = raw_level.upper()
     valid_levels = {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}
     if level not in valid_levels:
         level = "INFO"
@@ -82,9 +83,7 @@ def configure_logging(
 
     # 2. Rotating file handler
     file_format = (
-        "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
-        "{level: <8} | "
-        "{name}:{function}:{line} - {message}"
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
     )
     logger.add(
         str(full_log_file),
@@ -104,7 +103,7 @@ def configure_logging(
     logger.debug(f"Logging initialized at level={level}, destination={full_log_file}")
 
 
-def get_logger(name: Optional[str] = None):
+def get_logger(name: str | None = None):
     """Retrieve a configured logger instance bound with module name."""
     if not _IS_CONFIGURED:
         configure_logging()

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from src.ingestion.sample_sync import authenticate_client, fetch_sample, load_credentials
+from src.ingestion.sample_sync import fetch_sample, load_credentials
 
 
 def test_load_credentials_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

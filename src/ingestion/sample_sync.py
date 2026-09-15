@@ -14,12 +14,11 @@ Usage:
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from garminconnect import (
@@ -34,7 +33,7 @@ from src.common.logger import get_logger
 logger = get_logger("GarminSample")
 
 
-def load_credentials(env_file: Optional[Path] = None) -> tuple[str, str, Path]:
+def load_credentials(env_file: Path | None = None) -> tuple[str, str, Path]:
     """Load and validate credentials from .env."""
     if env_file is not None:
         load_dotenv(dotenv_path=env_file, override=True)
@@ -100,7 +99,7 @@ def save_sample_json(data: Any, target_file: Path) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
 
 
-def fetch_sample(client: Garmin, output_dir: Path = Path("data/raw/sample")) -> Dict[str, Any]:
+def fetch_sample(client: Garmin, output_dir: Path = Path("data/raw/sample")) -> dict[str, Any]:
     """Fetch sample telemetry for 1 day and 1 activity."""
     # Target date: yesterday usually has complete sleep and daily data
     today = date.today()
@@ -108,7 +107,7 @@ def fetch_sample(client: Garmin, output_dir: Path = Path("data/raw/sample")) -> 
     target_date_str = yesterday.isoformat()
 
     logger.info(f"\n📡 Obteniendo datos de muestra para la fecha: {target_date_str}")
-    sample_bundle: Dict[str, Any] = {"date": target_date_str}
+    sample_bundle: dict[str, Any] = {"date": target_date_str}
 
     # 1. Perfil de Usuario
     try:
@@ -124,14 +123,16 @@ def fetch_sample(client: Garmin, output_dir: Path = Path("data/raw/sample")) -> 
         save_sample_json(sleep_data, output_dir / "sample_sleep.json")
         sleep_score = None
         if isinstance(sleep_data, dict):
-            sleep_score = (
-                sleep_data.get("dailySleepDTO", {}).get("sleepScores", {}).get("overall", {}).get("value")
-                or sleep_data.get("sleepScores", {}).get("overall", {}).get("value")
-            )
+            sleep_score = sleep_data.get("dailySleepDTO", {}).get("sleepScores", {}).get(
+                "overall", {}
+            ).get("value") or sleep_data.get("sleepScores", {}).get("overall", {}).get("value")
             duration_sec = sleep_data.get("dailySleepDTO", {}).get("sleepTimeSeconds")
             duration_hrs = round(duration_sec / 3600, 1) if duration_sec else "N/A"
             logger.info(f"💤 Sueño: Puntuación {sleep_score}/100 | Duración: {duration_hrs}h")
-        sample_bundle["sleep"] = {"score": sleep_score, "file": str(output_dir / "sample_sleep.json")}
+        sample_bundle["sleep"] = {
+            "score": sleep_score,
+            "file": str(output_dir / "sample_sleep.json"),
+        }
     except Exception as e:
         logger.warning(f"No se pudieron descargar datos de sueño: {e}")
 
@@ -184,7 +185,9 @@ def fetch_sample(client: Garmin, output_dir: Path = Path("data/raw/sample")) -> 
             dist_km = round(distance_m / 1000, 2) if distance_m else 0
             dur_min = round(duration_s / 60, 1) if duration_s else 0
             save_sample_json(act, output_dir / f"sample_activity_{act_id}.json")
-            logger.info(f"🏃 Última actividad: '{act_name}' ({act_type}) - {dist_km} km en {dur_min} min")
+            logger.info(
+                f"🏃 Última actividad: '{act_name}' ({act_type}) - {dist_km} km en {dur_min} min"
+            )
             sample_bundle["activity"] = {
                 "id": act_id,
                 "name": act_name,
@@ -209,7 +212,7 @@ def main() -> None:
     output_sample_dir = Path("data/raw/sample")
 
     client = authenticate_client(email, password, token_store)
-    sample_results = fetch_sample(client, output_dir=output_sample_dir)
+    _ = fetch_sample(client, output_dir=output_sample_dir)
 
     print("\n" + "-" * 60)
     print(" 🎉 ¡Prueba exitosa! Muestra guardada en:")

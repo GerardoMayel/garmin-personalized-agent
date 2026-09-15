@@ -9,14 +9,12 @@ app_documentation folder for review before manually updating the root README.md.
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 # Default directories and files to exclude from the mapped tree
-DEFAULT_EXCLUDED_DIRS: Set[str] = {
+DEFAULT_EXCLUDED_DIRS: set[str] = {
     ".git",
     "__pycache__",
     ".pytest_cache",
@@ -39,7 +37,7 @@ DEFAULT_EXCLUDED_DIRS: Set[str] = {
     "logs",
 }
 
-DEFAULT_EXCLUDED_FILES: Set[str] = {
+DEFAULT_EXCLUDED_FILES: set[str] = {
     ".DS_Store",
     ".env",
     "*.pyc",
@@ -54,7 +52,7 @@ DEFAULT_EXCLUDED_FILES: Set[str] = {
 HIDE_GITKEEP: bool = True
 
 # Directories that should not expand their dynamic contents in the tree (e.g. data/raw/ containing daily sync dumps)
-COLLAPSED_DIRS: Set[str] = {
+COLLAPSED_DIRS: set[str] = {
     "data/raw",
     "data/processed",
     "data/multimodal",
@@ -63,7 +61,7 @@ COLLAPSED_DIRS: Set[str] = {
 }
 
 # Standard top-level ordering to maintain clean logical grouping in README
-TOP_LEVEL_ORDER: List[str] = [
+TOP_LEVEL_ORDER: list[str] = [
     ".github",
     "deploy",
     "configs",
@@ -86,7 +84,7 @@ TOP_LEVEL_ORDER: List[str] = [
 ]
 
 
-def find_repo_root(start_path: Optional[Path] = None) -> Path:
+def find_repo_root(start_path: Path | None = None) -> Path:
     """Locate the root of the repository by finding .git, pyproject.toml, or src parent."""
     curr = (start_path or Path(__file__)).resolve()
     for parent in [curr] + list(curr.parents):
@@ -99,8 +97,8 @@ def find_repo_root(start_path: Optional[Path] = None) -> Path:
 def is_ignored(
     path: Path,
     repo_root: Path,
-    exclude_dirs: Set[str],
-    exclude_files: Set[str],
+    exclude_dirs: set[str],
+    exclude_files: set[str],
     include_gitkeep: bool = False,
 ) -> bool:
     """Check if a file or folder should be ignored during mapping."""
@@ -138,7 +136,7 @@ def is_ignored(
     return False
 
 
-def get_sort_key(item: Path, top_level: bool = False) -> Tuple[int, int, str]:
+def get_sort_key(item: Path, top_level: bool = False) -> tuple[int, int, str]:
     """Sort items: prioritized top-level order, directories first, then alphabetical."""
     name = item.name
     is_dir = 0 if item.is_dir() else 1
@@ -151,9 +149,9 @@ def get_sort_key(item: Path, top_level: bool = False) -> Tuple[int, int, str]:
     return (priority, is_dir, name.lower())
 
 
-def parse_existing_descriptions(readme_content: str) -> Dict[str, str]:
+def parse_existing_descriptions(readme_content: str) -> dict[str, str]:
     """Parse comments from the existing README tree (e.g. `file.py # comment`)."""
-    descriptions: Dict[str, str] = {}
+    descriptions: dict[str, str] = {}
     pattern = re.compile(r"^[│\s├└─]+([A-Za-z0-9_\-\./📊📈🖼️🤖]+(?:\.[a-zA-Z0-9]+)?)\s+#\s*(.+)$")
 
     for line in readme_content.splitlines():
@@ -169,11 +167,11 @@ def parse_existing_descriptions(readme_content: str) -> Dict[str, str]:
 def build_tree_nodes(
     dir_path: Path,
     repo_root: Path,
-    exclude_dirs: Set[str],
-    exclude_files: Set[str],
+    exclude_dirs: set[str],
+    exclude_files: set[str],
     include_gitkeep: bool,
     top_level: bool = False,
-) -> List[Path]:
+) -> list[Path]:
     """Retrieve filtered and sorted child paths for a directory."""
     try:
         children = [
@@ -195,14 +193,14 @@ def generate_tree_lines(
     is_last: bool = True,
     is_root: bool = True,
     project_name: str = "garmin-personal-insight-agent/",
-    exclude_dirs: Set[str] = DEFAULT_EXCLUDED_DIRS,
-    exclude_files: Set[str] = DEFAULT_EXCLUDED_FILES,
+    exclude_dirs: set[str] = DEFAULT_EXCLUDED_DIRS,
+    exclude_files: set[str] = DEFAULT_EXCLUDED_FILES,
     include_gitkeep: bool = False,
-    descriptions: Optional[Dict[str, str]] = None,
+    descriptions: dict[str, str] | None = None,
     with_spacers: bool = True,
-) -> List[str]:
+) -> list[str]:
     """Recursively generate tree lines with unicode branches."""
-    lines: List[str] = []
+    lines: list[str] = []
 
     if is_root:
         root_label = project_name if project_name.endswith("/") else f"{project_name}/"
@@ -290,7 +288,7 @@ def generate_tree_lines(
 def update_readme_content(original_readme: str, new_tree_str: str) -> str:
     """Replace or insert the project structure tree inside the README content."""
     header_pattern = re.compile(
-        r"^##\s+(?:Estructura del Proyecto|Project Structure)\s*$",
+        r"^##\s+.*(?:Estructura del Proyecto|Project Structure)\s*$",
         re.MULTILINE | re.IGNORECASE,
     )
     match = header_pattern.search(original_readme)
@@ -305,9 +303,7 @@ def update_readme_content(original_readme: str, new_tree_str: str) -> str:
 
     before_header = original_readme[:header_end].rstrip()
     after_section = (
-        "\n\n" + original_readme[next_match.start() :].lstrip("\n")
-        if next_match
-        else ""
+        "\n\n" + original_readme[next_match.start() :].lstrip("\n") if next_match else ""
     )
 
     return f"{before_header}\n\n{new_tree_str}\n{after_section}".rstrip() + "\n"
@@ -373,7 +369,7 @@ def main() -> int:
     root_readme_path = repo_root / "README.md"
 
     print(f"[*] Repository root: {repo_root}")
-    print(f"[*] Scanning paths and building tree hierarchy...")
+    print("[*] Scanning paths and building tree hierarchy...")
 
     descriptions = None
     if args.with_descriptions and root_readme_path.exists():
@@ -411,7 +407,7 @@ def main() -> int:
         root_readme_path.write_text(updated_readme, encoding="utf-8")
         print(f"[+] Overwrote root README: {root_readme_path}")
     else:
-        print(f"[*] Root README.md was NOT overwritten (ready for your manual update).")
+        print("[*] Root README.md was NOT overwritten (ready for your manual update).")
 
     print("\n--- Project Tree Preview ---")
     # Show first 40 lines of tree preview

@@ -144,7 +144,9 @@ class TestGarminDatabase:
             assert row["calendar_date"] == "2026-09-14"
             assert row["fit_zip_path"] == "/data/activity_123456.zip"
 
-    def test_ingest_raw_directory_and_timeseries_query(self, temp_db: GarminDatabase, tmp_path: Path):
+    def test_ingest_raw_directory_and_timeseries_query(
+        self, temp_db: GarminDatabase, tmp_path: Path
+    ):
         """Should scan folder hierarchy and populate tables, queryable via timeseries join."""
         raw_root = tmp_path / "raw"
         day_dir = raw_root / "2026-09-14"
@@ -157,12 +159,27 @@ class TestGarminDatabase:
         )
         # Write sleep
         (day_dir / "sleep.json").write_text(
-            json.dumps({"dailySleepDTO": {"calendarDate": "2026-09-14", "sleepScores": {"overall": {"value": 85}}}}),
+            json.dumps(
+                {
+                    "dailySleepDTO": {
+                        "calendarDate": "2026-09-14",
+                        "sleepScores": {"overall": {"value": 85}},
+                    }
+                }
+            ),
             encoding="utf-8",
         )
         # Write hrv
         (day_dir / "hrv.json").write_text(
-            json.dumps({"hrvSummary": {"calendarDate": "2026-09-14", "lastNightAvg": 48, "status": "BALANCED"}}),
+            json.dumps(
+                {
+                    "hrvSummary": {
+                        "calendarDate": "2026-09-14",
+                        "lastNightAvg": 48,
+                        "status": "BALANCED",
+                    }
+                }
+            ),
             encoding="utf-8",
         )
 
