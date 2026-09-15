@@ -60,12 +60,15 @@ garmin-personal-insight-agent/
 │   ├── common/
 │   │   ├── __init__.py
 │   │   ├── config.py
+│   │   ├── database.py
 │   │   ├── logger.py
 │   │   └── schemas.py
 │   ├── ingestion/
 │   │   ├── __init__.py
 │   │   ├── fit_decoder.py
 │   │   ├── garmin_client.py
+│   │   ├── garmin_sync.py
+│   │   ├── sample_sync.py
 │   │   └── sync_pipeline.py
 │   ├── rag/
 │   │   ├── __init__.py
@@ -89,15 +92,29 @@ garmin-personal-insight-agent/
 │   │   │   ├── 3_🖼️_VLM_Inspection.py
 │   │   │   └── 4_🤖_Agent_Chat.py
 │   │   └── app.py
-│   └── vision/
-│       ├── __init__.py
-│       ├── chart_renderer.py
-│       └── vlm_analyzer.py
+│   ├── vision/
+│   │   ├── __init__.py
+│   │   ├── chart_renderer.py
+│   │   └── vlm_analyzer.py
+│   └── __init__.py
 │
 ├── tests/
 │   ├── eval/
 │   ├── integration/
 │   └── unit/
+│       ├── test_database.py
+│       ├── test_garmin_client.py
+│       ├── test_logger.py
+│       ├── test_sample_sync.py
+│       └── test_sync_pipeline.py
+│
+├── specs/
+│   ├── 00_system_architecture.md
+│   ├── 01_data_schemas_spec.md
+│   ├── 02_ingestion_spec.md
+│   ├── 03_time_series_spec.md
+│   ├── 04_rag_spec.md
+│   └── 05_agent_graph_spec.md
 │
 ├── .dvc/
 │   ├── .gitignore

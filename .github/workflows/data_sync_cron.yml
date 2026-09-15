@@ -2,14 +2,18 @@ name: Data Sync Cron - Daily Garmin Ingestion Pipeline
 
 on:
   schedule:
-    # Trigger daily at 06:00 UTC (syncing last night's sleep and activities)
-    - cron: '0 6 * * *'
+    # Trigger daily at 00:01 UTC (fetching the completed previous day's metrics and sleep)
+    - cron: '1 0 * * *'
   workflow_dispatch:
     inputs:
       days_back:
-        description: 'Number of historical days to fetch'
+        description: 'Number of historical days to fetch (default: 2 for yesterday + today)'
         required: false
-        default: '1'
+        default: '2'
+      date:
+        description: 'Specific date to fetch in YYYY-MM-DD format (overrides days_back)'
+        required: false
+        default: ''
 
 jobs:
   sync-garmin-data:
@@ -30,13 +34,39 @@ jobs:
       - name: Install project dependencies
         run: uv sync
 
+      - name: Restore Garmin Session Tokens & Database Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.garminconnect
+            data/processed/garmin_history.db
+          key: garmin-sync-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            garmin-sync-${{ runner.os }}-
+
       - name: Execute Garmin Sync Pipeline
         env:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
-          GARMIN_TOKEN_STORE: ${{ runner.temp }}/garmin_tokens
+          GARMIN_TOKEN_STORE: ~/.garminconnect
         run: |
-          uv run python -m src.ingestion.sync_pipeline --days-back ${{ github.event.inputs.days_back || 1 }}
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            uv run python -m src.ingestion.sync_pipeline --date "${{ github.event.inputs.date }}"
+          else
+            DAYS="${{ github.event.inputs.days_back || '2' }}"
+            uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS"
+          fi
+
+      - name: Upload Synced Database & Ingestion Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garmin-sync-data-${{ github.run_number }}
+          path: |
+            data/processed/garmin_history.db
+            data/raw/
+            logs/
+          retention-days: 30
 
       - name: Log Sync Completion
         run: echo "Garmin sync pipeline completed successfully."

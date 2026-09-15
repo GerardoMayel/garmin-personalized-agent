@@ -2,17 +2,16 @@
 
 Automates session persistence, downloading daily health metrics (Sleep, HRV,
 Stress, Body Battery, Max Metrics/VO2 Max), activity metadata, and raw .FIT
-telemetry packages.
+telemetry packages, and persists them into the historical SQLite database.
 """
 
 from __future__ import annotations
 
 import json
-import logging
 import os
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from garminconnect import (
@@ -22,24 +21,29 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+from src.common.database import GarminDatabase
+from src.common.logger import get_logger
+
 load_dotenv()
-logger = logging.getLogger(__name__)
+logger = get_logger("GarminIngestor")
 
 
 class GarminDataIngestor:
-    """Orchestrates authentication, daily biometrics extraction, and activity downloads."""
+    """Orchestrates authentication, biometrics extraction, and SQLite database persistence."""
 
     def __init__(
         self,
-        email: Optional[str] = None,
-        password: Optional[str] = None,
+        email: str | None = None,
+        password: str | None = None,
         raw_data_dir: str = "data/raw",
-        tokenstore_dir: Optional[str] = None,
-        client: Optional[Any] = None,
+        tokenstore_dir: str | None = None,
+        client: Any | None = None,
+        db: GarminDatabase | None = None,
     ) -> None:
         self.email = email or os.getenv("GARMIN_EMAIL")
         self.password = password or os.getenv("GARMIN_PASSWORD")
         self.raw_data_dir = Path(raw_data_dir)
+        self.db = db if db is not None else GarminDatabase()
 
         env_token_store = os.getenv("GARMIN_TOKEN_STORE", "~/.garminconnect")
         resolved_token_dir = tokenstore_dir or env_token_store
@@ -74,50 +78,54 @@ class GarminDataIngestor:
             logger.error(f"Error de conexión con Garmin Connect: {e}")
             raise
 
-    def _save_json(self, data: Dict[str, Any], output_path: Path) -> None:
+    def _save_json(self, data: dict[str, Any], output_path: Path) -> None:
         """Guarda un diccionario como archivo JSON formateado con identación."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)
 
-    def sync_daily_biometrics(self, target_date: date) -> Dict[str, bool]:
-        """Descarga todas las métricas biomédicas y de salud para una fecha concreta."""
+    def sync_daily_biometrics(self, target_date: date) -> dict[str, bool]:
+        """Descarga métricas biomédicas para una fecha y las persiste en JSON y SQLite."""
         date_str = target_date.isoformat()
         day_dir = self.raw_data_dir / date_str
         logger.info(f"Sincronizando métricas para la fecha: {date_str}")
-        results: Dict[str, bool] = {}
+        results: dict[str, bool] = {}
 
-        # 1. Sueño detallado (Hipnograma, SpO2, respiración nocturna)
+        # 1. Sueño detallado
         try:
             sleep_data = self.client.get_sleep_data(date_str)
             self._save_json(sleep_data, day_dir / "sleep.json")
+            self.db.upsert_sleep(sleep_data)
             results["sleep"] = True
         except Exception as e:
             logger.warning(f"No se pudieron obtener datos de sueño: {e}")
             results["sleep"] = False
 
-        # 2. HRV nocturna (rMSSD, bloques de 5 min, baseline)
+        # 2. HRV nocturna
         try:
             hrv_data = self.client.get_hrv_data(date_str)
             self._save_json(hrv_data, day_dir / "hrv.json")
+            self.db.upsert_hrv(hrv_data)
             results["hrv"] = True
         except Exception as e:
             logger.warning(f"No se pudieron obtener datos de HRV: {e}")
             results["hrv"] = False
 
-        # 3. Estrés y Body Battery (minuto a minuto)
+        # 3. Estrés y Body Battery
         try:
             stress_data = self.client.get_stress_data(date_str)
             self._save_json(stress_data, day_dir / "stress.json")
+            self.db.upsert_stress(stress_data)
             results["stress"] = True
         except Exception as e:
             logger.warning(f"No se pudieron obtener datos de estrés: {e}")
             results["stress"] = False
 
-        # 4. Resumen diario (Pasos, calorías, FC en reposo, pisos subidos)
+        # 4. Resumen diario
         try:
             summary = self.client.get_user_summary(date_str)
             self._save_json(summary, day_dir / "daily_summary.json")
+            self.db.upsert_daily_summary(summary)
             results["daily_summary"] = True
         except Exception as e:
             logger.warning(f"No se pudo obtener el resumen diario de actividad: {e}")
@@ -127,6 +135,7 @@ class GarminDataIngestor:
         try:
             max_metrics = self.client.get_max_metrics(date_str)
             self._save_json(max_metrics, day_dir / "max_metrics.json")
+            self.db.upsert_max_metrics(max_metrics)
             results["max_metrics"] = True
         except Exception as e:
             logger.warning(f"No se pudieron obtener las métricas de VO2 Max: {e}")
@@ -134,48 +143,43 @@ class GarminDataIngestor:
 
         return results
 
-    def sync_activities(self, limit: int = 10, download_fit: bool = True) -> List[Dict[str, Any]]:
-        """Descarga el resumen de actividades recientes y sus archivos de telemetría .fit."""
+    def sync_activities(self, limit: int = 10, download_fit: bool = True) -> list[dict[str, Any]]:
+        """Descarga el resumen de actividades recientes, archivos .fit y actualiza la base de datos."""
         logger.info(f"Obteniendo las últimas {limit} actividades...")
         activities = self.client.get_activities(0, limit)
-        downloaded: List[Dict[str, Any]] = []
+        downloaded: list[dict[str, Any]] = []
 
         for act in activities:
             act_id = act.get("activityId")
             if not act_id:
                 continue
 
-            start_time = act.get("startTimeLocal", "")[:10]  # 'YYYY-MM-DD'
+            start_time = act.get("startTimeLocal", "")[:10]
             target_date_str = start_time if start_time else "unknown_date"
             act_dir = self.raw_data_dir / target_date_str / "activities"
             act_dir.mkdir(parents=True, exist_ok=True)
 
-            # Guardar metadata estructurada de la actividad
+            # Guardar metadata estructurada
             self._save_json(act, act_dir / f"activity_{act_id}_summary.json")
 
+            fit_path = act_dir / f"activity_{act_id}.zip"
             # Descargar archivo binario .fit
-            if download_fit:
-                fit_path = act_dir / f"activity_{act_id}.zip"
-                if not fit_path.exists():
-                    try:
-                        logger.info(
-                            f"Descargando archivo .fit de la actividad {act_id} ({act.get('activityName')})"
-                        )
-                        dl_fmt = getattr(
-                            getattr(self.client, "ActivityDownloadFormat", None),
-                            "ORIGINAL",
-                            getattr(Garmin, "ActivityDownloadFormat", None).ORIGINAL
-                            if hasattr(Garmin, "ActivityDownloadFormat")
-                            else 1,
-                        )
-                        fit_data = self.client.download_activity(act_id, dl_fmt=dl_fmt)
-                        with open(fit_path, "wb") as f:
-                            f.write(fit_data)
-                    except Exception as e:
-                        logger.warning(f"Error al descargar .fit para la actividad {act_id}: {e}")
-                else:
-                    logger.info(f"Archivo .fit para {act_id} ya existe localmente.")
+            if download_fit and not fit_path.exists():
+                try:
+                    logger.info(
+                        f"Descargando archivo .fit de la actividad {act_id} ({act.get('activityName')})"
+                    )
+                    dl_fmt_cls = getattr(Garmin, "ActivityDownloadFormat", None)
+                    dl_fmt = getattr(dl_fmt_cls, "ORIGINAL", 1) if dl_fmt_cls else 1
+                    fit_data = self.client.download_activity(act_id, dl_fmt=dl_fmt)
+                    with open(fit_path, "wb") as f:
+                        f.write(fit_data)
+                except Exception as e:
+                    logger.warning(f"Error al descargar .fit para la actividad {act_id}: {e}")
 
+            # Upsert into SQLite
+            fit_zip_loc = fit_path.as_posix() if fit_path.exists() else None
+            self.db.upsert_activity(act, fit_zip_path=fit_zip_loc)
             downloaded.append(act)
 
         return downloaded
@@ -192,10 +196,6 @@ class GarminDataIngestor:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
-    ingestor = GarminDataIngestor()
-    # Sincroniza los últimos 7 días por defecto
-    ingestor.run_sync_window(days_back=7, sync_fit=True)
+    from src.ingestion.sync_pipeline import main
+
+    main()

@@ -9,9 +9,10 @@ Sistema analítico end-to-end y arquitectura de agentes personalizada para la in
 
 El proyecto integra:
 1. **Modelado estadístico y Machine Learning clásico** sobre series temporales fisiológicas densas (descomposición, causalidad Granger, correlación no lineal).
-2. **Fine-Tuning de un modelo fundacional de lenguaje (LLM)** adaptado a terminología biomédica y estilos de razonamiento fisiológico deportivo.
-3. **Agentes orquestados por grafos de estados (LangGraph)** con acceso a herramientas analíticas y base vectorial (RAG) de consensos clínicos en español.
-4. **Dashboard analítico interactivo en Streamlit** para observabilidad de inferencias, hipnogramas y telemetría de actividades.
+2. **Base de Datos Histórica SQLite** para almacenamiento relacional optimizado, consultas analíticas y particionamiento en `data/processed/garmin_history.db`.
+3. **Fine-Tuning de un modelo fundacional de lenguaje (LLM)** adaptado a terminología biomédica y estilos de razonamiento fisiológico deportivo.
+4. **Agentes orquestados por grafos de estados (LangGraph)** con acceso a herramientas analíticas y base vectorial (RAG) de consensos clínicos en español.
+5. **Dashboard analítico interactivo en Streamlit** para observabilidad de inferencias, hipnogramas y telemetría de actividades.
 
 ---
 
@@ -33,6 +34,13 @@ El proyecto integra:
                    │                                     │
                    ▼                                     ▼
  ┌─────────────────────────────────────────────────────────────────────────┐
+ │              Historical Storage & Relational Database Layer             │
+ │  - SQLite (`data/processed/garmin_history.db`): Daily, HRV, Sleep, FIT  │
+ │  - Raw Partitioned Snapshots (`data/raw/YYYY-MM-DD/` via DVC)           │
+ └─────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+                                   ▼
+ ┌─────────────────────────────────────────────────────────────────────────┐
  │               Time Series & Classical Machine Learning Layer            │
  │  - Feature Store & Rolling Windows (Baselines personales de 7-28 días) │
  │  - Modelos de Series de Tiempo (ARIMA/Prophet, Detección de Anomalías) │
@@ -51,6 +59,7 @@ El proyecto integra:
  │               └───────────────┬─────────────────────┘                   │
  │                               ▼                                         │
  │         Stateful Orchestration Workflow (Diagnostic Graph)              │
+ │  - Structured JSON Logging & Rotational Auditing (`logs/`)              │
  └───────────────────────────────┬─────────────────────────────────────────┘
                                  │
                                  ▼
@@ -59,8 +68,45 @@ El proyecto integra:
  │  - Multi-page UI: Biometric Monitoring, Time Series Lab, Agent Chat     │
  │  - Visualizaciones interactivas de hipnogramas y rutas con Plotly/Pydeck│
  └─────────────────────────────────────────────────────────────────────────┘
+```
 
-## Estructura del Proyecto
+---
+
+## 🗄️ Base de Datos Histórica (SQLite)
+
+Para superar las limitaciones de ventanas móviles y permitir modelado longitudinal a largo plazo, el sistema cuenta con un motor relacional en **`data/processed/garmin_history.db`** ([`src/common/database.py`](file:///Users/mayelmacbookm4pro/repos/garmin-personalized-agent/src/common/database.py)):
+
+| Tabla | Clave Primaria | Métricas Principales Almacenadas |
+| :--- | :--- | :--- |
+| **`daily_summaries`** | `calendar_date` | Pasos, distancia, FC reposo, calorías activas, estrés promedio, minutos vigorosos/moderados. |
+| **`sleep_records`** | `calendar_date` | Puntuación de sueño, fases (profundo, ligero, REM, vigilia), SpO2, respiración, inicio/fin. |
+| **`hrv_records`** | `calendar_date` | rMSSD nocturno, media semanal, estado (`BALANCED`, `UNBALANCED`), baselines personalizadas. |
+| **`stress_records`** | `calendar_date` | Nivel promedio y máximo de estrés, duraciones en reposo, actividad y niveles bajo/medio/alto. |
+| **`max_metrics`** | `calendar_date` | VO2 Max de carrera/ciclismo, edad de condición física (Fitness Age). |
+| **`activities`** | `activity_id` | Nombre, tipo, distancia, duración, desnivel, velocidad, FC media/máx, ruta local al `.fit.zip`. |
+
+### Operaciones de Base de Datos
+```bash
+# Cargar/migrar datos históricos existentes desde data/raw/ hacia SQLite:
+uv run python -m src.common.database --backfill
+
+# Consultar el recuento y estado de registros en todas las tablas:
+uv run python -m src.common.database --stats
+```
+
+---
+
+## 📝 Sistema de Logs Centralizado
+
+El sistema implementa un servicio de logging estructurado y asíncrono con **Loguru** ([`src/common/logger.py`](file:///Users/mayelmacbookm4pro/repos/garmin-personalized-agent/src/common/logger.py)):
+- **Consola:** Trazas coloreadas con marcas de tiempo, módulo emisor y nivel de gravedad.
+- **Archivo rotativo:** Registro persistente en `logs/garmin_agent.log` (rotación cada 10 MB, retención de 14 días y compresión `.zip`).
+- **Nivel configurable:** Controlado mediante `LOG_LEVEL` en tu archivo `.env` (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
+- **Intercepción:** Captura automática de logs emitidos por librerías estándar (`urllib3`, `requests`, `garminconnect`).
+
+---
+
+## 📁 Estructura del Proyecto
 
 garmin-personal-insight-agent/
 ├── .github/
@@ -124,12 +170,15 @@ garmin-personal-insight-agent/
 │   ├── common/
 │   │   ├── __init__.py
 │   │   ├── config.py
+│   │   ├── database.py
 │   │   ├── logger.py
 │   │   └── schemas.py
 │   ├── ingestion/
 │   │   ├── __init__.py
 │   │   ├── fit_decoder.py
 │   │   ├── garmin_client.py
+│   │   ├── garmin_sync.py
+│   │   ├── sample_sync.py
 │   │   └── sync_pipeline.py
 │   ├── rag/
 │   │   ├── __init__.py
@@ -153,15 +202,29 @@ garmin-personal-insight-agent/
 │   │   │   ├── 3_🖼️_VLM_Inspection.py
 │   │   │   └── 4_🤖_Agent_Chat.py
 │   │   └── app.py
-│   └── vision/
-│       ├── __init__.py
-│       ├── chart_renderer.py
-│       └── vlm_analyzer.py
+│   ├── vision/
+│   │   ├── __init__.py
+│   │   ├── chart_renderer.py
+│   │   └── vlm_analyzer.py
+│   └── __init__.py
 │
 ├── tests/
 │   ├── eval/
 │   ├── integration/
 │   └── unit/
+│       ├── test_database.py
+│       ├── test_garmin_client.py
+│       ├── test_logger.py
+│       ├── test_sample_sync.py
+│       └── test_sync_pipeline.py
+│
+├── specs/
+│   ├── 00_system_architecture.md
+│   ├── 01_data_schemas_spec.md
+│   ├── 02_ingestion_spec.md
+│   ├── 03_time_series_spec.md
+│   ├── 04_rag_spec.md
+│   └── 05_agent_graph_spec.md
 │
 ├── .dvc/
 │   ├── .gitignore
@@ -180,3 +243,31 @@ garmin-personal-insight-agent/
 ├── uv.lock
 ├── AGENTS.md
 └── README.md
+
+
+## ⚡ Guía de Inicio Rápido
+
+### 1. Configurar Entorno
+```bash
+# Sincronizar dependencias con uv
+uv sync --extra dev
+
+# Copiar variables de entorno y configurar credenciales
+cp .env.example .env
+# Modifica .env con tu GARMIN_EMAIL y GARMIN_PASSWORD
+```
+
+### 2. Probar Conexión con Muestra Ligera (Recomendado)
+Descarga en 3 segundos los datos de ayer y tu última actividad para verificar credenciales y tokens de sesión:
+```bash
+uv run python -m src.ingestion.sample_sync
+```
+
+### 3. Sincronización Completa y Persistencia en SQLite
+Descarga la ventana móvil de los últimos 7 días y persiste automáticamente en `data/raw/` y `data/processed/garmin_history.db`:
+```bash
+uv run python -m src.ingestion.garmin_sync
+```
+
+### 4. Ejecución de Tests Automatizados
+```

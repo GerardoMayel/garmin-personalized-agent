@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from garminconnect import (
     GarminConnectAuthenticationError,
-    GarminConnectConnectionError,
     GarminConnectTooManyRequestsError,
 )
 
@@ -20,7 +19,9 @@ from src.ingestion.garmin_sync import GarminDataIngestor
 class TestGarminDataIngestor:
     """Test suite for GarminDataIngestor authentication, biometrics, and activity sync."""
 
-    def test_missing_credentials_raises_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    def test_missing_credentials_raises_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
         """Should raise ValueError if credentials are not in environment or arguments."""
         monkeypatch.delenv("GARMIN_EMAIL", raising=False)
         monkeypatch.delenv("GARMIN_PASSWORD", raising=False)
@@ -62,6 +63,7 @@ class TestGarminDataIngestor:
             )
 
             assert mock_client.login.call_count == 2
+            assert ingestor.tokenstore_dir == token_dir
             mock_client.garth.dump.assert_called_once_with(token_dir.as_posix())
 
     def test_rate_limit_error_re_raised(self, tmp_path: Path):
