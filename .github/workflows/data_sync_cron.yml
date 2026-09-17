@@ -18,10 +18,15 @@ on:
 jobs:
   sync-garmin-data:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v2
@@ -39,7 +44,6 @@ jobs:
         with:
           path: |
             ~/.garminconnect
-            data/processed/garmin_history.db
           key: garmin-sync-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             garmin-sync-${{ runner.os }}-
@@ -55,6 +59,20 @@ jobs:
           else
             DAYS="${{ github.event.inputs.days_back || '2' }}"
             uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS"
+          fi
+
+      - name: Commit and Push Updated SQLite Database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/processed/garmin_history.db
+          if git diff --staged --quiet; then
+            echo "No changes in SQLite database to commit."
+          else
+            git commit -m "chore(data): auto-update Garmin SQLite database [skip ci]" \
+                       -m "Co-authored-by: Antigravity Agent <antigravity-bot@google.internal>"
+            git pull --rebase origin ${{ github.ref_name }} || true
+            git push origin HEAD:${{ github.ref_name }}
           fi
 
       - name: Upload Synced Database & Ingestion Artifacts

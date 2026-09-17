@@ -97,6 +97,7 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+!/data/processed/garmin_history.db
 
 # DVC local storage
 .dvc/cache
