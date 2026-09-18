@@ -285,6 +285,68 @@ class R2StorageClient:
         logger.info(f"Sincronización de {artifacts_dir} completada: {stats}")
         return stats
 
+    def sync_knowledge_base(
+        self,
+        kb_dir: str | Path = "data/knowledge_base",
+        remote_prefix: str = "knowledge_base",
+    ) -> dict[str, int]:
+        """Recursively upload knowledge base documents (PDFs) to Cloudflare R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(kb_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio knowledge_base no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.rglob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            rel_path = file_path.relative_to(root_path)
+            remote_key = f"{remote_prefix}/{rel_path.as_posix()}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {kb_dir} a R2 completada: {stats}")
+        return stats
+
+    def restore_knowledge_base(
+        self,
+        kb_dir: str | Path = "data/knowledge_base",
+        remote_prefix: str = "knowledge_base",
+    ) -> dict[str, int]:
+        """Download all knowledge base files from Cloudflare R2 into local directory."""
+        stats = {"downloaded": 0, "failed": 0, "skipped": 0}
+        if not self.is_configured():
+            logger.error("R2 no configurado para restaurar knowledge_base.")
+            return stats
+
+        try:
+            assert self._client is not None
+            paginator = self._client.get_paginator("list_objects_v2")
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=f"{remote_prefix}/")
+
+            dest_root = Path(kb_dir)
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/") or key.endswith(".gitkeep"):
+                        continue
+                    rel_path = key[len(remote_prefix) + 1 :]
+                    local_dest = dest_root / rel_path
+                    if self.download_file(key, local_dest):
+                        stats["downloaded"] += 1
+                    else:
+                        stats["failed"] += 1
+
+            logger.info(f"Restauración de knowledge_base desde R2 completada: {stats}")
+            return stats
+        except Exception as e:
+            logger.error(f"Error restaurando knowledge_base desde R2: {e}")
+            return stats
+
 
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""
@@ -306,6 +368,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--sync-artifacts", action="store_true", help="Upload data/artifacts/ to artifacts/ in R2"
+    )
+    parser.add_argument(
+        "--sync-kb", action="store_true", help="Upload data/knowledge_base/ to knowledge_base/ in R2"
+    )
+    parser.add_argument(
+        "--restore-kb", action="store_true", help="Download knowledge_base/ documents from R2 into data/knowledge_base/"
     )
     parser.add_argument(
         "--db-path", type=Path, default=DEFAULT_DB_PATH, help="Path to SQLite database"
@@ -356,6 +424,16 @@ def main() -> None:
     if args.sync_artifacts:
         res = client.sync_artifacts()
         print(f"Resultado de sincronización artifacts: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_kb:
+        res = client.sync_knowledge_base()
+        print(f"Resultado de sincronización knowledge_base a R2: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.restore_kb:
+        res = client.restore_knowledge_base()
+        print(f"Resultado de restauración knowledge_base desde R2: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
 
     parser.print_help()

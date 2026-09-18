@@ -56,8 +56,8 @@ credentials.json
 /data/artifacts/*
 !/data/artifacts/.gitkeep
 !/data/artifacts/models/.gitkeep
-/data/knowledge_base/*
-!/data/knowledge_base/.gitkeep
+/data/knowledge_base/**/*.pdf
+/data/knowledge_base/*.pdf
 /data/multimodal/*
 !/data/multimodal/.gitkeep
 /data/training/*

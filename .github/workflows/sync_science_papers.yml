@@ -1,0 +1,96 @@
+name: Sync Science White Papers - Garmin Devices & Human Physiology (Cloudflare R2)
+
+on:
+  schedule:
+    # Runs at 06:00 UTC on day 1 of every 6th month (e.g., January 1 and July 1)
+    - cron: '0 6 1 */6 *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force re-download and verification of all white papers'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync-scientific-evidence:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install project dependencies
+        run: uv sync
+
+      - name: Restore Knowledge Base from Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m src.common.r2_storage --restore-kb || true
+
+      - name: "Proceso 1: Sincronizar Dispositivos Garmin y Sensores (Max 15 PDFs a R2)"
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          EXTRA_FLAGS="--r2-sync"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --force"
+          fi
+          uv run python -m src.ingestion.sync_garmin_device_papers $EXTRA_FLAGS
+
+      - name: "Proceso 2: Sincronizar Variables en el Cuerpo Humano (Max 15 PDFs a R2)"
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          EXTRA_FLAGS="--r2-sync"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --force"
+          fi
+          uv run python -m src.ingestion.sync_human_physiology_papers $EXTRA_FLAGS
+
+      - name: Verify Cloudflare R2 Knowledge Base Persistence
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m src.common.r2_storage --sync-kb
+
+      - name: Upload Sync Artifacts (Logs & Directory Report)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: science-papers-sync-report-${{ github.run_number }}
+          path: |
+            logs/
+          retention-days: 30
+
+      - name: Report Sync Status
+        run: |
+          echo "✅ Proceso completado: Evidencia científica sincronizada en Cloudflare R2 (garmin-personal-data/knowledge_base/firstbeat/)."
