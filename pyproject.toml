@@ -52,6 +52,7 @@ dependencies = [
     "boto3>=1.43.97",
     "prophet>=1.4.0",
     "seaborn>=0.13.2",
+    "langdetect>=1.0.9",
 ]
 
 [project.optional-dependencies]

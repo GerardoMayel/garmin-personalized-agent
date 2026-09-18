@@ -1,13 +1,13 @@
-name: Sync Science White Papers - Garmin Devices & Human Physiology (Cloudflare R2)
+name: Knowledge Base Pipeline - Ingestion, Chunks & Parquet Sync (Cloudflare R2)
 
 on:
   schedule:
-    # Runs at 06:00 UTC on day 1 of every 6th month (e.g., January 1 and July 1)
-    - cron: '0 6 1 */6 *'
+    # Runs at 06:00 UTC on day 1 of every month
+    - cron: '0 6 1 * *'
   workflow_dispatch:
     inputs:
       force:
-        description: 'Force re-download and verification of all white papers'
+        description: 'Force re-download, verification, and re-chunking of all documents'
         type: boolean
         required: false
         default: false
@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  sync-scientific-evidence:
+  knowledge-base-pipeline:
     runs-on: ubuntu-latest
 
     steps:
@@ -34,7 +34,7 @@ jobs:
       - name: Install project dependencies
         run: uv sync
 
-      - name: Restore Knowledge Base from Cloudflare R2
+      - name: Restore Knowledge Base & Processed Chunks from Cloudflare R2
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
@@ -43,6 +43,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           uv run python -m src.common.r2_storage --restore-kb || true
+          uv run python -m src.common.r2_storage --restore-chunks || true
 
       - name: "Proceso 1: Sincronizar Dispositivos Garmin y Sensores (Max 15 PDFs a R2)"
         env:
@@ -72,7 +73,32 @@ jobs:
           fi
           uv run python -m src.ingestion.sync_human_physiology_papers $EXTRA_FLAGS
 
-      - name: Verify Cloudflare R2 Knowledge Base Persistence
+      - name: "Proceso 3: Sincronizar Glosario y Descripciones de Métricas Garmin"
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m src.ingestion.sync_garmin_metric_descriptions --r2-sync
+
+      - name: "Componente Chunker: Token Splitter (400 tokens / 40% overlap), NLP & Datasets Parquet"
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          EXTRA_CHUNK_FLAGS="--r2-sync"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            EXTRA_CHUNK_FLAGS="$EXTRA_CHUNK_FLAGS --force"
+          fi
+          uv run python -m src.rag.loader_and_chunker $EXTRA_CHUNK_FLAGS
+
+      - name: Verify Cloudflare R2 Knowledge Base & Processed Chunks Persistence
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
@@ -81,16 +107,18 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           uv run python -m src.common.r2_storage --sync-kb
+          uv run python -m src.common.r2_storage --sync-chunks
 
-      - name: Upload Sync Artifacts (Logs & Directory Report)
+      - name: Upload Sync Artifacts (Logs, Ledger & Reports)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: science-papers-sync-report-${{ github.run_number }}
+          name: knowledge-base-sync-report-${{ github.run_number }}
           path: |
             logs/
+            data/knowledge_base/processed_chunks/_ledger.json
           retention-days: 30
 
-      - name: Report Sync Status
+      - name: Report Pipeline Status
         run: |
-          echo "✅ Proceso completado: Evidencia científica sincronizada en Cloudflare R2 (garmin-personal-data/knowledge_base/firstbeat/)."
+          echo "✅ Pipeline completado: 3 Fuentes procesadas y sincronizadas en Cloudflare R2 (garmin-personal-data/knowledge_base/)."

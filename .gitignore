@@ -58,6 +58,9 @@ credentials.json
 !/data/artifacts/models/.gitkeep
 /data/knowledge_base/**/*.pdf
 /data/knowledge_base/*.pdf
+/data/knowledge_base/processed_chunks/**/*.parquet
+/data/knowledge_base/processed_chunks/**/*.json
+!/data/knowledge_base/**/.gitkeep
 /data/multimodal/*
 !/data/multimodal/.gitkeep
 /data/training/*
