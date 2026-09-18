@@ -487,13 +487,14 @@ class GarminDatabase:
             "activities": 0,
         }
 
-        if not raw_dir.exists():
-            logger.warning(f"Raw directory does not exist: {raw_dir}")
+        raw_path = Path(raw_dir)
+        if not raw_path.exists():
+            logger.warning(f"Raw directory does not exist: {raw_path}")
             return stats
 
-        logger.info(f"Scanning raw data partitions in: {raw_dir.resolve()}")
+        logger.info(f"Scanning raw data partitions in: {raw_path.resolve()}")
 
-        for day_dir in sorted(raw_dir.iterdir()):
+        for day_dir in sorted(raw_path.iterdir()):
             if not day_dir.is_dir() or day_dir.name in {"sample", ".git"}:
                 continue
 
