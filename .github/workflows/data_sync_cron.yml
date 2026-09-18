@@ -34,30 +34,44 @@ jobs:
       - name: Install project dependencies
         run: uv sync
 
-      - name: Restore Garmin Session Tokens & Database Cache
+      - name: Restore Garmin Session Tokens
         uses: actions/cache@v4
         with:
           path: |
             ~/.garminconnect
-            data/processed/garmin_history.db
           key: garmin-sync-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             garmin-sync-${{ runner.os }}-
 
-      - name: Execute Garmin Sync Pipeline
+      - name: Restore Historical Database from Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m src.common.r2_storage --restore-db || true
+
+      - name: Execute Garmin Sync & Upload to Cloudflare R2
         env:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           GARMIN_TOKEN_STORE: ~/.garminconnect
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           if [ -n "${{ github.event.inputs.date }}" ]; then
-            uv run python -m src.ingestion.sync_pipeline --date "${{ github.event.inputs.date }}"
+            uv run python -m src.ingestion.sync_pipeline --date "${{ github.event.inputs.date }}" --r2-sync
           else
             DAYS="${{ github.event.inputs.days_back || '2' }}"
-            uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS"
+            uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS" --r2-sync
           fi
 
-      - name: Upload Synced Database & Ingestion Artifacts
+      - name: Upload Ingestion Artifacts & Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -69,4 +83,4 @@ jobs:
           retention-days: 30
 
       - name: Log Sync Completion
-        run: echo "Garmin sync pipeline completed successfully."
+        run: echo "Garmin sync and Cloudflare R2 cloud persistence completed successfully."

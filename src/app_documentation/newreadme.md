@@ -270,4 +270,6 @@ uv run python -m src.ingestion.garmin_sync
 ```
 
 ### 4. Ejecución de Tests Automatizados
+```bash
+uv run pytest tests/unit/ -v
 ```
