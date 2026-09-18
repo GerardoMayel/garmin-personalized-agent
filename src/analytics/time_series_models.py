@@ -491,9 +491,9 @@ class HoltWintersForecaster:
 
         # In-sample fitted
         hist_fitted = self.fitted_res_.fittedvalues
-        all_ds = (
-            list(self.history_dates_) if self.history_dates_ is not None else []
-        ) + list(future_dates)
+        all_ds = (list(self.history_dates_) if self.history_dates_ is not None else []) + list(
+            future_dates
+        )
         all_yhat = np.concatenate([hist_fitted, raw_forecast])
 
         # Standard error expansion over horizon

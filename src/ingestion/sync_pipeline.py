@@ -98,15 +98,16 @@ def run_pipeline(
             from src.analytics.dvc_manager import GarminDVCManager
             from src.analytics.predictions_manager import BiometricPredictionsManager
 
-            dvc_mgr = GarminDVCManager(
-                db_path=db_path or Path("data/processed/garmin_history.db")
-            )
+            target_db_path = Path(db_path) if db_path else Path("data/processed/garmin_history.db")
+            dvc_mgr = GarminDVCManager(db_path=target_db_path)
             clean_df = dvc_mgr.update_clean_dataset()
             logger.info(f"Dataset limpio DVC actualizado: {len(clean_df)} registros disponibles.")
 
             pred_mgr = BiometricPredictionsManager()
             preds_df = pred_mgr.generate_and_update_forecasts()
-            logger.info(f"Tabla de predicciones quincenales actualizada: {len(preds_df)} registros bloqueados.")
+            logger.info(
+                f"Tabla de predicciones quincenales actualizada: {len(preds_df)} registros bloqueados."
+            )
         except Exception as e:
             logger.warning(f"Error actualizando dataset DVC o predicciones: {e}")
 

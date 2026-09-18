@@ -187,7 +187,7 @@ def sync_garmin_device_papers(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    results = {
+    results: dict[str, Any] = {
         "already_present": 0,
         "downloaded": 0,
         "failed": 0,
@@ -196,14 +196,18 @@ def sync_garmin_device_papers(
     }
 
     papers_to_sync = GARMIN_DEVICE_PAPERS[:MAX_DOCUMENTS]
-    logger.info(f"Iniciando Proceso 1: Dispositivos Garmin y Sensores ({len(papers_to_sync)} documentos, máx: {MAX_DOCUMENTS})")
+    logger.info(
+        f"Iniciando Proceso 1: Dispositivos Garmin y Sensores ({len(papers_to_sync)} documentos, máx: {MAX_DOCUMENTS})"
+    )
     logger.info(f"Destino local: {output_dir.resolve()}")
 
     for paper in papers_to_sync:
         dest_file = output_dir / paper.filename
 
         if dest_file.exists() and is_valid_pdf(dest_file) and not force:
-            logger.info(f"  ✓ Presente: {paper.filename} ({dest_file.stat().st_size / 1024:.1f} KB)")
+            logger.info(
+                f"  ✓ Presente: {paper.filename} ({dest_file.stat().st_size / 1024:.1f} KB)"
+            )
             results["already_present"] += 1
             results["files"].append(paper.filename)
             continue
@@ -265,7 +269,9 @@ def main() -> None:
         "--dry-run", action="store_true", help="Simular ejecución sin realizar descargas"
     )
     parser.add_argument(
-        "--r2-sync", action="store_true", help="Sincronizar PDFs con Cloudflare R2 (garmin-personal-data)"
+        "--r2-sync",
+        action="store_true",
+        help="Sincronizar PDFs con Cloudflare R2 (garmin-personal-data)",
     )
 
     args = parser.parse_args()
@@ -273,9 +279,13 @@ def main() -> None:
     print("\n" + "=" * 70)
     print("⌚ FUENTE 1: Dispositivos Garmin, Sensores y Algoritmos Embebidos")
     print(f"   • Directorio local:  {args.output_dir.resolve()}")
-    print("   • Destino remoto R2: garmin-personal-data/knowledge_base/firstbeat/dispositivos_garmin_sensores/")
+    print(
+        "   • Destino remoto R2: garmin-personal-data/knowledge_base/firstbeat/dispositivos_garmin_sensores/"
+    )
     print(f"   • Límite máx:        {MAX_DOCUMENTS} PDFs")
-    print(f"   • Modo:              {'SIMULACIÓN (DRY-RUN)' if args.dry_run else 'DESCARGA ACTIVA'}")
+    print(
+        f"   • Modo:              {'SIMULACIÓN (DRY-RUN)' if args.dry_run else 'DESCARGA ACTIVA'}"
+    )
     print(f"   • Sincronización R2: {'SÍ' if args.r2_sync else 'NO'}")
     print("=" * 70 + "\n")
 

@@ -194,9 +194,7 @@ class GarminDVCManager:
         df_merged["running_avg_hr"] = (
             df_merged["running_avg_hr"].ffill().bfill().fillna(def_run).round(1)
         )
-        df_merged["gym_avg_hr"] = (
-            df_merged["gym_avg_hr"].ffill().bfill().fillna(def_gym).round(1)
-        )
+        df_merged["gym_avg_hr"] = df_merged["gym_avg_hr"].ffill().bfill().fillna(def_gym).round(1)
         df_merged["walking_avg_hr"] = (
             df_merged["walking_avg_hr"].ffill().bfill().fillna(def_walk).round(1)
         )
@@ -231,9 +229,7 @@ class GarminDVCManager:
         if parquet_path.exists():
             existing_df = pd.read_parquet(parquet_path)
             existing_dates = set(existing_df["calendar_date"].astype(str))
-            new_rows = extracted_df[
-                ~extracted_df["calendar_date"].astype(str).isin(existing_dates)
-            ]
+            new_rows = extracted_df[~extracted_df["calendar_date"].astype(str).isin(existing_dates)]
 
             if not new_rows.empty:
                 combined = (
@@ -311,7 +307,9 @@ def main() -> None:
     print("\n" + "=" * 65)
     print("📦 Garmin DVC Clean Dataset Successfully Updated")
     print(f"   • Total Days:   {len(clean_df)}")
-    print(f"   • Date Range:   {clean_df['calendar_date'].min()} to {clean_df['calendar_date'].max()}")
+    print(
+        f"   • Date Range:   {clean_df['calendar_date'].min()} to {clean_df['calendar_date'].max()}"
+    )
     print(f"   • Total Cols:   {len(clean_df.columns)}")
     print(f"   • Saved to:     {args.dvc_dir / 'garmin_clean_features.parquet'}")
     print("=" * 65 + "\n")

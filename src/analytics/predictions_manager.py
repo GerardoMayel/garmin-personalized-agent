@@ -209,9 +209,7 @@ class BiometricPredictionsManager:
             return pd.DataFrame()
 
         with sqlite3.connect(self.db_path) as conn:
-            return pd.read_sql_query(
-                "SELECT * FROM forecast_metadata ORDER BY run_id DESC", conn
-            )
+            return pd.read_sql_query("SELECT * FROM forecast_metadata ORDER BY run_id DESC", conn)
 
     def generate_and_update_forecasts(
         self,
@@ -285,6 +283,7 @@ class BiometricPredictionsManager:
                 # Persist trained model artifact in data/artifacts/models/
                 try:
                     import joblib
+
                     models_dir = Path("data/artifacts/models")
                     models_dir.mkdir(parents=True, exist_ok=True)
                     model_path = models_dir / f"{metric}_ensemble.joblib"
@@ -318,12 +317,15 @@ class BiometricPredictionsManager:
         # Update models registry
         try:
             import json
+
             models_dir = Path("data/artifacts/models")
             if models_dir.exists():
                 registry = {
                     "last_updated": gen_date_str,
                     "model_type": "Ensemble_Prophet_HoltWinters",
-                    "metrics": [m for m in active_metrics if (models_dir / f"{m}_ensemble.joblib").exists()],
+                    "metrics": [
+                        m for m in active_metrics if (models_dir / f"{m}_ensemble.joblib").exists()
+                    ],
                 }
                 with open(models_dir / "models_registry.json", "w", encoding="utf-8") as rf:
                     json.dump(registry, rf, indent=2)
@@ -345,6 +347,7 @@ class BiometricPredictionsManager:
         # Persist to SQLite
         import sqlite3
         from datetime import datetime
+
         now_iso = datetime.now(UTC).isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
@@ -435,7 +438,9 @@ def main() -> None:
     print(
         f"   • Target Dates Span:      {preds_df['target_date'].min()} to {preds_df['target_date'].max()}"
     )
-    print(f"   • Parquet Saved to:       {args.predictions_dir / 'weekly_biometric_forecasts.parquet'}")
+    print(
+        f"   • Parquet Saved to:       {args.predictions_dir / 'weekly_biometric_forecasts.parquet'}"
+    )
     print(f"   • CSV Saved to:           {args.predictions_dir / 'weekly_biometric_forecasts.csv'}")
     print("=" * 75)
 

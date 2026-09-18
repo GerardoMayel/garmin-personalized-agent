@@ -359,21 +359,31 @@ def main() -> None:
         "--restore-db", action="store_true", help="Download SQLite database from R2"
     )
     parser.add_argument(
-        "--restore-forecast", action="store_true", help="Download weekly forecasts SQLite database from R2"
+        "--restore-forecast",
+        action="store_true",
+        help="Download weekly forecasts SQLite database from R2",
     )
     parser.add_argument("--sync-raw", action="store_true", help="Upload data/raw/ partitions to R2")
-    parser.add_argument("--sync-dvc", action="store_true", help="Upload data/dvc/ clean dataset to R2")
     parser.add_argument(
-        "--sync-forecast", action="store_true", help="Upload data/processed/predictions/ to forecast/ in R2"
+        "--sync-dvc", action="store_true", help="Upload data/dvc/ clean dataset to R2"
+    )
+    parser.add_argument(
+        "--sync-forecast",
+        action="store_true",
+        help="Upload data/processed/predictions/ to forecast/ in R2",
     )
     parser.add_argument(
         "--sync-artifacts", action="store_true", help="Upload data/artifacts/ to artifacts/ in R2"
     )
     parser.add_argument(
-        "--sync-kb", action="store_true", help="Upload data/knowledge_base/ to knowledge_base/ in R2"
+        "--sync-kb",
+        action="store_true",
+        help="Upload data/knowledge_base/ to knowledge_base/ in R2",
     )
     parser.add_argument(
-        "--restore-kb", action="store_true", help="Download knowledge_base/ documents from R2 into data/knowledge_base/"
+        "--restore-kb",
+        action="store_true",
+        help="Download knowledge_base/ documents from R2 into data/knowledge_base/",
     )
     parser.add_argument(
         "--db-path", type=Path, default=DEFAULT_DB_PATH, help="Path to SQLite database"
