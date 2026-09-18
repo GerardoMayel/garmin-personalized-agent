@@ -253,6 +253,42 @@ class GarminDVCManager:
 
         combined.to_parquet(parquet_path, index=False)
         combined.to_csv(csv_path, index=False)
+
+        # Export preprocessing and imputation pipeline metadata to data/artifacts/
+        try:
+            import json
+
+            import joblib
+
+            artifacts_dir = Path("data/artifacts")
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+            imputation_summary = {
+                "imputation_strategy": "forward_backward_fill_with_domain_baselines",
+                "domain_baselines": {
+                    "resting_heart_rate": 58.0,
+                    "hrv_rmssd": 55.0,
+                    "daily_avg_stress": 25.0,
+                    "sleep_score": 80.0,
+                    "total_steps": 5000.0,
+                    "running_avg_hr": 145.0,
+                    "gym_avg_hr": 115.0,
+                    "walking_avg_hr": 95.0,
+                },
+                "feature_count": len(combined.columns),
+                "features": list(combined.columns),
+                "total_rows": len(combined),
+                "last_calendar_date": str(combined["calendar_date"].max()),
+            }
+
+            with open(artifacts_dir / "imputation_metadata.json", "w", encoding="utf-8") as mf:
+                json.dump(imputation_summary, mf, indent=2)
+
+            joblib.dump(imputation_summary, artifacts_dir / "imputation_pipeline.joblib")
+            logger.info("DVC: Exported imputation pipeline metadata to data/artifacts/")
+        except Exception as art_err:
+            logger.warning(f"Could not export imputation artifacts: {art_err}")
+
         return combined
 
 

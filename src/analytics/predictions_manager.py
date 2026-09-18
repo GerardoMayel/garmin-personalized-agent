@@ -174,9 +174,10 @@ class BiometricPredictionsManager:
 
             # Check if all target dates are already locked for this metric
             unrecorded_dates = [d for d in target_dates if (str(d), metric) not in locked_keys]
-            if not unrecorded_dates:
+            model_file = Path("data/artifacts/models") / f"{metric}_ensemble.joblib"
+            if not unrecorded_dates and model_file.exists():
                 logger.info(
-                    f"Metric '{metric}': All {len(target_dates)} horizon dates already locked. Skipping recalculation."
+                    f"Metric '{metric}': All {len(target_dates)} horizon dates already locked and model saved. Skipping."
                 )
                 continue
 
@@ -185,6 +186,17 @@ class BiometricPredictionsManager:
 
             try:
                 ensemble.fit(df_history, target_col=metric)
+
+                # Persist trained model artifact in data/artifacts/models/
+                try:
+                    import joblib
+                    models_dir = Path("data/artifacts/models")
+                    models_dir.mkdir(parents=True, exist_ok=True)
+                    model_path = models_dir / f"{metric}_ensemble.joblib"
+                    joblib.dump(ensemble, model_path)
+                except Exception as save_err:
+                    logger.warning(f"Could not serialize model artifact for {metric}: {save_err}")
+
                 pred_df = ensemble.predict(periods=horizon_days)
                 pred_df["ds_date"] = pd.to_datetime(pred_df["ds"]).dt.date
 
@@ -207,6 +219,21 @@ class BiometricPredictionsManager:
                         )
             except Exception as exc:
                 logger.error(f"Failed to generate forecast for '{metric}': {exc}", exc_info=True)
+
+        # Update models registry
+        try:
+            import json
+            models_dir = Path("data/artifacts/models")
+            if models_dir.exists():
+                registry = {
+                    "last_updated": gen_date_str,
+                    "model_type": "Ensemble_Prophet_HoltWinters",
+                    "metrics": [m for m in active_metrics if (models_dir / f"{m}_ensemble.joblib").exists()],
+                }
+                with open(models_dir / "models_registry.json", "w", encoding="utf-8") as rf:
+                    json.dump(registry, rf, indent=2)
+        except Exception as reg_err:
+            logger.warning(f"Could not save models_registry.json: {reg_err}")
 
         if new_records:
             new_df = pd.DataFrame(new_records)

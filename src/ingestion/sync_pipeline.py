@@ -124,7 +124,8 @@ def run_pipeline(
                     )
                     r2.sync_raw_directory(raw_dir=raw_dir)
                     r2.sync_dvc_dataset()
-                    r2.sync_predictions()
+                    r2.sync_predictions(remote_prefix="forecast")
+                    r2.sync_artifacts()
                     logger.info("Sincronización con Cloudflare R2 completada con éxito.")
                 else:
                     logger.warning("R2 no configurado; omitiendo subida a la nube.")

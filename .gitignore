@@ -53,6 +53,9 @@ credentials.json
 !/data/processed/predictions/.gitkeep
 /data/dvc/*
 !/data/dvc/.gitkeep
+/data/artifacts/*
+!/data/artifacts/.gitkeep
+!/data/artifacts/models/.gitkeep
 /data/knowledge_base/*
 !/data/knowledge_base/.gitkeep
 /data/multimodal/*

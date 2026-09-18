@@ -227,7 +227,7 @@ class R2StorageClient:
     def sync_predictions(
         self,
         predictions_dir: str | Path = "data/processed/predictions",
-        remote_prefix: str = "processed/predictions",
+        remote_prefix: str = "forecast",
     ) -> dict[str, int]:
         """Upload weekly biometric predictions table (.parquet and .csv) to R2."""
         stats = {"uploaded": 0, "failed": 0, "skipped": 0}
@@ -250,6 +250,33 @@ class R2StorageClient:
         logger.info(f"Sincronización de {predictions_dir} completada: {stats}")
         return stats
 
+    def sync_artifacts(
+        self,
+        artifacts_dir: str | Path = "data/artifacts",
+        remote_prefix: str = "artifacts",
+    ) -> dict[str, int]:
+        """Recursively upload pipelines, metadata, and model artifacts to R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(artifacts_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio de artefactos no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.rglob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            rel_path = file_path.relative_to(root_path)
+            remote_key = f"{remote_prefix}/{rel_path.as_posix()}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {artifacts_dir} completada: {stats}")
+        return stats
+
 
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""
@@ -262,6 +289,13 @@ def main() -> None:
         "--restore-db", action="store_true", help="Download SQLite database from R2"
     )
     parser.add_argument("--sync-raw", action="store_true", help="Upload data/raw/ partitions to R2")
+    parser.add_argument("--sync-dvc", action="store_true", help="Upload data/dvc/ clean dataset to R2")
+    parser.add_argument(
+        "--sync-forecast", action="store_true", help="Upload data/processed/predictions/ to forecast/ in R2"
+    )
+    parser.add_argument(
+        "--sync-artifacts", action="store_true", help="Upload data/artifacts/ to artifacts/ in R2"
+    )
     parser.add_argument(
         "--db-path", type=Path, default=DEFAULT_DB_PATH, help="Path to SQLite database"
     )
@@ -292,6 +326,21 @@ def main() -> None:
     if args.sync_raw:
         res = client.sync_raw_directory()
         print(f"Resultado de sincronización raw: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_dvc:
+        res = client.sync_dvc_dataset()
+        print(f"Resultado de sincronización dvc: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_forecast:
+        res = client.sync_predictions(remote_prefix="forecast")
+        print(f"Resultado de sincronización forecast: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_artifacts:
+        res = client.sync_artifacts()
+        print(f"Resultado de sincronización artifacts: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
 
     parser.print_help()
