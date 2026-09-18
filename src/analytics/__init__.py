@@ -10,6 +10,11 @@ from src.analytics.causality_engine import (
     CrossCorrelationResult,
     PhysiologicalCausalityEngine,
 )
+from src.analytics.dvc_manager import GarminDVCManager
+from src.analytics.predictions_manager import (
+    BiometricPredictionsManager,
+    get_biweekly_target_dates,
+)
 from src.analytics.time_series_models import (
     EnsembleBiometricForecaster,
     ForecastResult,
@@ -32,4 +37,7 @@ __all__ = [
     "CausalityTestResult",
     "CrossCorrelationResult",
     "PhysiologicalCausalityEngine",
+    "GarminDVCManager",
+    "BiometricPredictionsManager",
+    "get_biweekly_target_dates",
 ]

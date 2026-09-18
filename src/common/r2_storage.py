@@ -198,6 +198,58 @@ class R2StorageClient:
         logger.info(f"Sincronización de data/raw/ completada: {stats}")
         return stats
 
+    def sync_dvc_dataset(
+        self,
+        dvc_dir: str | Path = "data/dvc",
+        remote_prefix: str = "dvc",
+    ) -> dict[str, int]:
+        """Upload clean versioned DVC dataset files (.parquet and .csv) to R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(dvc_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio DVC no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.glob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            remote_key = f"{remote_prefix}/{file_path.name}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {dvc_dir} completada: {stats}")
+        return stats
+
+    def sync_predictions(
+        self,
+        predictions_dir: str | Path = "data/processed/predictions",
+        remote_prefix: str = "processed/predictions",
+    ) -> dict[str, int]:
+        """Upload weekly biometric predictions table (.parquet and .csv) to R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(predictions_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio de predicciones no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.glob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            remote_key = f"{remote_prefix}/{file_path.name}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {predictions_dir} completada: {stats}")
+        return stats
+
 
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""

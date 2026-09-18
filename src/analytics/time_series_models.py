@@ -59,17 +59,57 @@ def compute_physiological_bounds(
 
     if metric_name == "resting_heart_rate":
         # Clinical baseline floor: Human resting HR below ~38 bpm without severe pathology is rare.
-        # Dynamic floor based on athlete baseline minus safety margin, minimum 38.0 bpm.
         base_floor = max(38.0, obs_q01 - 3.0)
         floor = min(base_floor, obs_min - 0.5)
-        # Clinical cap: Resting HR above 100 is resting tachycardia; athlete ceiling up to 110-115 bpm.
         base_cap = min(115.0, max(obs_max + 6.0, obs_q99 + 4.0))
         cap = max(base_cap, obs_max + 0.5)
         if cap - floor < 5.0:
             cap = floor + 10.0
 
+    elif metric_name == "running_avg_hr":
+        # Aerobic/Anaerobic running: floor ~115 bpm, cap ~195 bpm
+        floor = max(110.0, min(obs_min - 5.0, obs_q01 - 3.0))
+        cap = min(200.0, max(obs_max + 10.0, obs_q99 + 8.0))
+        if cap - floor < 10.0:
+            cap = floor + 20.0
+
+    elif metric_name == "gym_avg_hr":
+        # Strength training sessions: floor ~80 bpm, cap ~170 bpm
+        floor = max(80.0, min(obs_min - 5.0, obs_q01 - 3.0))
+        cap = min(175.0, max(obs_max + 10.0, obs_q99 + 8.0))
+        if cap - floor < 10.0:
+            cap = floor + 20.0
+
+    elif metric_name == "walking_avg_hr":
+        # Walking sessions: floor ~75 bpm, cap ~145 bpm
+        floor = max(75.0, min(obs_min - 5.0, obs_q01 - 3.0))
+        cap = min(150.0, max(obs_max + 8.0, obs_q99 + 6.0))
+        if cap - floor < 10.0:
+            cap = floor + 15.0
+
+    elif metric_name == "total_sleep_hours":
+        # Human sleep duration: minimum 3.5 - 4.0 hrs, max 12.0 - 13.0 hrs
+        floor = max(3.5, min(obs_min - 0.5, obs_q01 - 0.5))
+        cap = min(13.0, max(obs_max + 1.0, obs_q99 + 1.0))
+        if cap - floor < 2.0:
+            cap = floor + 3.0
+
+    elif metric_name == "active_kilocalories":
+        floor = 0.0
+        cap = max(obs_max * 1.5, 3000.0)
+
+    elif metric_name == "resting_kilocalories":
+        floor = max(900.0, min(obs_min - 50.0, 1100.0))
+        cap = min(2800.0, max(obs_max + 100.0, 2400.0))
+        if cap - floor < 100.0:
+            cap = floor + 200.0
+
+    elif metric_name == "total_kilocalories":
+        floor = max(1100.0, min(obs_min - 100.0, 1400.0))
+        cap = max(obs_max * 1.4, 4500.0)
+
     elif metric_name == "hrv_rmssd":
-        # HRV RMSSD (ms): Minimum physiological floor ~15 ms to prevent fatal arrhythmia collapse.
+        # HRV RMSSD (ms): Minimum physiological floor ~15 ms
         floor = max(15.0, min(obs_min * 0.8, obs_q01 - 5.0))
         floor = min(floor, obs_min - 0.5)
         cap = max(obs_max * 1.35, obs_q99 + 15.0)

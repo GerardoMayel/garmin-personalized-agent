@@ -45,11 +45,14 @@ venv.bak/
 garmin_tokens.json
 credentials.json
 
-# Raw and processed data (managed via DVC)
+# Raw and processed data (managed via DVC / R2)
 /data/raw/*
 !/data/raw/.gitkeep
 /data/processed/*
 !/data/processed/.gitkeep
+!/data/processed/predictions/.gitkeep
+/data/dvc/*
+!/data/dvc/.gitkeep
 /data/knowledge_base/*
 !/data/knowledge_base/.gitkeep
 /data/multimodal/*

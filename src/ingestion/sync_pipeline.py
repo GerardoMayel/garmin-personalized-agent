@@ -93,6 +93,23 @@ def run_pipeline(
 
         logger.info("Pipeline de sincronización finalizado exitosamente.")
 
+        # Actualizar dataset limpio DVC y tabla de predicciones bloqueadas
+        try:
+            from src.analytics.dvc_manager import GarminDVCManager
+            from src.analytics.predictions_manager import BiometricPredictionsManager
+
+            dvc_mgr = GarminDVCManager(
+                db_path=db_path or Path("data/processed/garmin_history.db")
+            )
+            clean_df = dvc_mgr.update_clean_dataset()
+            logger.info(f"Dataset limpio DVC actualizado: {len(clean_df)} registros disponibles.")
+
+            pred_mgr = BiometricPredictionsManager()
+            preds_df = pred_mgr.generate_and_update_forecasts()
+            logger.info(f"Tabla de predicciones quincenales actualizada: {len(preds_df)} registros bloqueados.")
+        except Exception as e:
+            logger.warning(f"Error actualizando dataset DVC o predicciones: {e}")
+
         if r2_sync:
             try:
                 from src.common.r2_storage import R2StorageClient
@@ -100,12 +117,14 @@ def run_pipeline(
                 r2 = R2StorageClient()
                 if r2.is_configured():
                     logger.info(
-                        "Sincronizando base de datos y particiones raw con Cloudflare R2..."
+                        "Sincronizando base de datos, DVC, predicciones y particiones raw con Cloudflare R2..."
                     )
                     r2.backup_database(
                         local_db_path=db_path or Path("data/processed/garmin_history.db")
                     )
                     r2.sync_raw_directory(raw_dir=raw_dir)
+                    r2.sync_dvc_dataset()
+                    r2.sync_predictions()
                     logger.info("Sincronización con Cloudflare R2 completada con éxito.")
                 else:
                     logger.warning("R2 no configurado; omitiendo subida a la nube.")
