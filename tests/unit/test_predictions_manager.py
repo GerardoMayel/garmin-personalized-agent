@@ -48,18 +48,29 @@ class TestPredictionsManager:
     def test_get_biweekly_target_dates(self):
         """Should calculate remainder of current week + entire next week."""
         # 2026-09-18 is a Friday (weekday=4)
-        base = date(2026, 9, 18)
-        dates = get_biweekly_target_dates(base)
+        base_friday = date(2026, 9, 18)
 
-        # Remaining current week: Sat 19, Sun 20
-        # Next full week: Mon 21 to Sun 27
-        # Total = 9 dates
-        assert len(dates) == 9
-        assert dates[0] == date(2026, 9, 19)
-        assert dates[-1] == date(2026, 9, 27)
+        # 1. With include_today=True: Friday 18 through Sunday 27 (10 dates)
+        dates_fri = get_biweekly_target_dates(base_friday, include_today=True)
+        assert len(dates_fri) == 10
+        assert dates_fri[0] == date(2026, 9, 18)
+        assert dates_fri[-1] == date(2026, 9, 27)
+
+        # 2. With include_today=False: Saturday 19 through Sunday 27 (9 dates)
+        dates_tomorrow = get_biweekly_target_dates(base_friday, include_today=False)
+        assert len(dates_tomorrow) == 9
+        assert dates_tomorrow[0] == date(2026, 9, 19)
+        assert dates_tomorrow[-1] == date(2026, 9, 27)
+
+        # 3. Monday 2026-09-21: Monday 21 through Sunday Oct 4 (14 dates)
+        base_monday = date(2026, 9, 21)
+        dates_mon = get_biweekly_target_dates(base_monday, include_today=True)
+        assert len(dates_mon) == 14
+        assert dates_mon[0] == date(2026, 9, 21)
+        assert dates_mon[-1] == date(2026, 10, 4)
 
     def test_generate_and_lock_predictions(self, mock_clean_features: Path, tmp_path: Path):
-        """Should generate predictions and permanently lock them from overwrite."""
+        """Should generate predictions, save in SQLite, and permanently lock them from overwrite."""
         pred_dir = tmp_path / "predictions"
         manager = BiometricPredictionsManager(
             features_file=mock_clean_features,
@@ -74,6 +85,13 @@ class TestPredictionsManager:
         assert len(preds_1) > 0
         assert "is_locked" in preds_1.columns
         assert preds_1["is_locked"].all()
+
+        # Check SQLite persistence and metadata
+        assert manager.db_path.exists()
+        meta_df = manager.get_forecast_metadata()
+        assert not meta_df.empty
+        assert "run_id" in meta_df.columns
+        assert meta_df["new_records_added"].iloc[0] > 0
 
         # Re-running immediately must NOT change existing records (Strict Immutability Rule)
         preds_2 = manager.generate_and_update_forecasts(

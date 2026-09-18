@@ -20,7 +20,7 @@ Features:
 from __future__ import annotations
 
 import argparse
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,7 @@ logger = get_logger(__name__)
 
 DEFAULT_DVC_PATH = Path("data/dvc/garmin_clean_features.parquet")
 DEFAULT_PRED_DIR = Path("data/processed/predictions")
+DEFAULT_PRED_DB = DEFAULT_PRED_DIR / "weekly_biometric_forecasts.db"
 DEFAULT_PRED_PARQUET = DEFAULT_PRED_DIR / "weekly_biometric_forecasts.parquet"
 DEFAULT_PRED_CSV = DEFAULT_PRED_DIR / "weekly_biometric_forecasts.csv"
 
@@ -59,11 +60,19 @@ SUPPORTED_PREDICTION_METRICS = [
 ]
 
 
-def get_biweekly_target_dates(current_date: date | None = None) -> list[date]:
-    """Compute the target date horizon: remainder of current week + entire next week.
+def get_biweekly_target_dates(
+    current_date: date | None = None,
+    include_today: bool = True,
+) -> list[date]:
+    """Compute target date horizon: remainder of current week + entire next week.
+
+    Args:
+        current_date: Base date (defaults to today).
+        include_today: If True, horizon starts on current_date.
+                       If False, starts on current_date + 1.
 
     Returns:
-        list[date]: Dates from tomorrow up to the Sunday of next week.
+        list[date]: Horizon dates through Sunday of the subsequent week.
     """
     base_date = current_date or date.today()
 
@@ -72,8 +81,7 @@ def get_biweekly_target_dates(current_date: date | None = None) -> list[date]:
     current_week_sunday = base_date + timedelta(days=days_to_sunday)
     next_week_sunday = current_week_sunday + timedelta(days=7)
 
-    # We forecast starting from tomorrow (or today if base_date is historical)
-    start_forecast = base_date + timedelta(days=1)
+    start_forecast = base_date if include_today else (base_date + timedelta(days=1))
     if start_forecast > next_week_sunday:
         return []
 
@@ -87,7 +95,7 @@ def get_biweekly_target_dates(current_date: date | None = None) -> list[date]:
 
 
 class BiometricPredictionsManager:
-    """Manages generation, immutability, and persistence of rolling biometric forecasts."""
+    """Manages generation, immutability, and persistence of rolling biometric forecasts in SQLite."""
 
     def __init__(
         self,
@@ -97,11 +105,86 @@ class BiometricPredictionsManager:
         self.features_file = Path(features_file)
         self.predictions_dir = Path(predictions_dir)
         self.predictions_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.predictions_dir / "weekly_biometric_forecasts.db"
         self.parquet_path = self.predictions_dir / "weekly_biometric_forecasts.parquet"
         self.csv_path = self.predictions_dir / "weekly_biometric_forecasts.csv"
+        self._init_sqlite_db()
+
+    def _init_sqlite_db(self) -> None:
+        """Initialize SQLite database with schema for forecasts and execution metadata."""
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS biometric_forecasts (
+                    forecast_generated_date TEXT NOT NULL,
+                    target_date TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    predicted_value REAL NOT NULL,
+                    ci_lower REAL NOT NULL,
+                    ci_upper REAL NOT NULL,
+                    model_name TEXT NOT NULL,
+                    is_locked INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (target_date, metric)
+                );
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS forecast_metadata (
+                    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    forecast_generated_date TEXT NOT NULL,
+                    horizon_start TEXT NOT NULL,
+                    horizon_end TEXT NOT NULL,
+                    total_horizon_days INTEGER NOT NULL,
+                    metrics_count INTEGER NOT NULL,
+                    metrics_list TEXT NOT NULL,
+                    new_records_added INTEGER NOT NULL,
+                    total_locked_records INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_forecasts_target ON biometric_forecasts(target_date);"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_forecasts_metric ON biometric_forecasts(metric);"
+            )
+            conn.commit()
 
     def load_existing_predictions(self) -> pd.DataFrame:
-        """Load registered predictions table if present, else empty structured DataFrame."""
+        """Load registered predictions table from SQLite (primary) or Parquet/CSV (fallback)."""
+        import sqlite3
+
+        if self.db_path.exists():
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    df = pd.read_sql_query(
+                        """
+                        SELECT
+                            forecast_generated_date,
+                            target_date,
+                            metric,
+                            predicted_value,
+                            ci_lower,
+                            ci_upper,
+                            model_name,
+                            is_locked
+                        FROM biometric_forecasts
+                        ORDER BY metric, target_date
+                        """,
+                        conn,
+                    )
+                    if not df.empty:
+                        df["is_locked"] = df["is_locked"].astype(bool)
+                        return df
+            except Exception as e:
+                logger.warning(f"Error loading from SQLite: {e}; attempting fallback.")
+
         if self.parquet_path.exists():
             return pd.read_parquet(self.parquet_path)
 
@@ -117,6 +200,18 @@ class BiometricPredictionsManager:
                 "is_locked",
             ]
         )
+
+    def get_forecast_metadata(self) -> pd.DataFrame:
+        """Query the forecast_metadata table in SQLite."""
+        import sqlite3
+
+        if not self.db_path.exists():
+            return pd.DataFrame()
+
+        with sqlite3.connect(self.db_path) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM forecast_metadata ORDER BY run_id DESC", conn
+            )
 
     def generate_and_update_forecasts(
         self,
@@ -247,11 +342,62 @@ class BiometricPredictionsManager:
             )
         else:
             combined_df = existing_df
-            logger.info("PredictionsManager: No new predictions needed (all dates locked).")
+        # Persist to SQLite
+        import sqlite3
+        from datetime import datetime
+        now_iso = datetime.now(UTC).isoformat()
 
-        # Persist locally
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            if new_records:
+                for rec in new_records:
+                    cursor.execute(
+                        """
+                        INSERT OR IGNORE INTO biometric_forecasts (
+                            forecast_generated_date, target_date, metric,
+                            predicted_value, ci_lower, ci_upper, model_name, is_locked, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            rec["forecast_generated_date"],
+                            rec["target_date"],
+                            rec["metric"],
+                            rec["predicted_value"],
+                            rec["ci_lower"],
+                            rec["ci_upper"],
+                            rec["model_name"],
+                            1 if rec["is_locked"] else 0,
+                            now_iso,
+                        ),
+                    )
+
+            # Insert execution metadata
+            cursor.execute(
+                """
+                INSERT INTO forecast_metadata (
+                    forecast_generated_date, horizon_start, horizon_end,
+                    total_horizon_days, metrics_count, metrics_list,
+                    new_records_added, total_locked_records, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    gen_date_str,
+                    str(target_dates[0]),
+                    str(target_dates[-1]),
+                    len(target_dates),
+                    len(active_metrics),
+                    json.dumps(active_metrics),
+                    len(new_records),
+                    len(combined_df),
+                    now_iso,
+                ),
+            )
+            conn.commit()
+
+        # Persist locally to Parquet and CSV for downstream compatibility
         combined_df.to_parquet(self.parquet_path, index=False)
         combined_df.to_csv(self.csv_path, index=False)
+        logger.info(f"Predictions persisted to SQLite ({self.db_path}), Parquet, and CSV.")
         return combined_df
 
 

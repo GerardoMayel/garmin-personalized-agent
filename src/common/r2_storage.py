@@ -170,6 +170,14 @@ class R2StorageClient:
         """Restore SQLite database from Cloudflare R2."""
         return self.download_file(remote_key, local_db_path)
 
+    def restore_predictions(
+        self,
+        local_db_path: str | Path = "data/processed/predictions/weekly_biometric_forecasts.db",
+        remote_key: str = "forecast/weekly_biometric_forecasts.db",
+    ) -> bool:
+        """Restore weekly biometric forecasts SQLite database from Cloudflare R2."""
+        return self.download_file(remote_key, local_db_path)
+
     def sync_raw_directory(
         self,
         raw_dir: str | Path = DEFAULT_RAW_DIR,
@@ -288,6 +296,9 @@ def main() -> None:
     parser.add_argument(
         "--restore-db", action="store_true", help="Download SQLite database from R2"
     )
+    parser.add_argument(
+        "--restore-forecast", action="store_true", help="Download weekly forecasts SQLite database from R2"
+    )
     parser.add_argument("--sync-raw", action="store_true", help="Upload data/raw/ partitions to R2")
     parser.add_argument("--sync-dvc", action="store_true", help="Upload data/dvc/ clean dataset to R2")
     parser.add_argument(
@@ -321,6 +332,10 @@ def main() -> None:
 
     if args.restore_db:
         ok = client.restore_database(local_db_path=args.db_path)
+        sys.exit(0 if ok else 1)
+
+    if args.restore_forecast:
+        ok = client.restore_predictions()
         sys.exit(0 if ok else 1)
 
     if args.sync_raw:
