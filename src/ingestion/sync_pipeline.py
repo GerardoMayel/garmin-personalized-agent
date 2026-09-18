@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import datetime
+from pathlib import Path
 
 from src.common.database import GarminDatabase
 from src.common.logger import get_logger
@@ -53,6 +54,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Path to historical SQLite database (default: data/processed/garmin_history.db).",
     )
+    parser.add_argument(
+        "--r2-sync",
+        action="store_true",
+        default=False,
+        help="Upload SQLite database and raw partitions to Cloudflare R2 after sync.",
+    )
     return parser.parse_args(args)
 
 
@@ -62,6 +69,7 @@ def run_pipeline(
     sync_fit: bool = True,
     raw_dir: str = "data/raw",
     db_path: str | None = None,
+    r2_sync: bool = False,
 ) -> int:
     """Executes the data synchronization pipeline.
 
@@ -84,6 +92,26 @@ def run_pipeline(
             ingestor.run_sync_window(days_back=days_back, sync_fit=sync_fit)
 
         logger.info("Pipeline de sincronización finalizado exitosamente.")
+
+        if r2_sync:
+            try:
+                from src.common.r2_storage import R2StorageClient
+
+                r2 = R2StorageClient()
+                if r2.is_configured():
+                    logger.info(
+                        "Sincronizando base de datos y particiones raw con Cloudflare R2..."
+                    )
+                    r2.backup_database(
+                        local_db_path=db_path or Path("data/processed/garmin_history.db")
+                    )
+                    r2.sync_raw_directory(raw_dir=raw_dir)
+                    logger.info("Sincronización con Cloudflare R2 completada con éxito.")
+                else:
+                    logger.warning("R2 no configurado; omitiendo subida a la nube.")
+            except Exception as e:
+                logger.warning(f"Error sincronizando con R2: {e}")
+
         return 0
 
     except Exception as e:
@@ -101,6 +129,7 @@ def main() -> None:
         sync_fit=sync_fit,
         raw_dir=args.raw_dir,
         db_path=args.db_path,
+        r2_sync=args.r2_sync,
     )
     sys.exit(exit_code)
 

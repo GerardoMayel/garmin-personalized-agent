@@ -18,6 +18,7 @@ class TestSyncPipelineCLI:
         assert args.no_fit is False
         assert args.raw_dir == "data/raw"
         assert args.db_path is None
+        assert args.r2_sync is False
 
     def test_parse_args_custom(self):
         """Should parse custom arguments correctly."""
@@ -32,6 +33,7 @@ class TestSyncPipelineCLI:
                 "/tmp/raw",
                 "--db-path",
                 "/tmp/test.db",
+                "--r2-sync",
             ]
         )
         assert args.days_back == 5
@@ -39,6 +41,7 @@ class TestSyncPipelineCLI:
         assert args.no_fit is True
         assert args.raw_dir == "/tmp/raw"
         assert args.db_path == "/tmp/test.db"
+        assert args.r2_sync is True
 
     @patch("src.ingestion.sync_pipeline.GarminDataIngestor")
     @patch("src.ingestion.sync_pipeline.GarminDatabase")
