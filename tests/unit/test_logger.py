@@ -15,10 +15,15 @@ def test_get_logger_creation(tmp_path: Path):
         log_dir=str(log_dir),
         log_filename="test.log",
         force_reconfigure=True,
+        enqueue=False,
     )
 
     log = get_logger("unit_test_module")
     log.info("Test message from unit test")
+
+    from loguru import logger
+
+    logger.complete()
 
     log_file = log_dir / "test.log"
     assert log_file.exists()

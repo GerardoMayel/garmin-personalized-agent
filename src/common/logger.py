@@ -46,6 +46,7 @@ def configure_logging(
     rotation: str = "10 MB",
     retention: str = "14 days",
     force_reconfigure: bool = False,
+    enqueue: bool = True,
 ) -> None:
     """Initialize console and file loggers across the application."""
     global _IS_CONFIGURED
@@ -92,7 +93,7 @@ def configure_logging(
         rotation=rotation,
         retention=retention,
         compression="zip",
-        enqueue=True,
+        enqueue=enqueue,
         encoding="utf-8",
     )
 
