@@ -51,6 +51,7 @@ dependencies = [
     "matplotlib>=3.8.0",
     "boto3>=1.43.97",
     "prophet>=1.4.0",
+    "seaborn>=0.13.2",
 ]
 
 [project.optional-dependencies]
@@ -99,3 +100,9 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "ipywidgets>=8.1.9",
+    "nbformat>=5.11.1",
+]
