@@ -11,9 +11,12 @@ from src.analytics.causality_engine import (
     PhysiologicalCausalityEngine,
 )
 from src.analytics.time_series_models import (
+    EnsembleBiometricForecaster,
     ForecastResult,
     GarminProphetForecaster,
+    HoltWintersForecaster,
     SleepRecoveryPredictor,
+    compute_physiological_bounds,
 )
 
 __all__ = [
@@ -22,6 +25,9 @@ __all__ = [
     "PhysiologicalAnomalyDetector",
     "ForecastResult",
     "GarminProphetForecaster",
+    "HoltWintersForecaster",
+    "EnsembleBiometricForecaster",
+    "compute_physiological_bounds",
     "SleepRecoveryPredictor",
     "CausalityTestResult",
     "CrossCorrelationResult",
