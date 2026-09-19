@@ -127,57 +127,62 @@ El cliente `src/common/r2_storage.py` gestiona la sincronización remota contra 
 garmin-personalized-agent/
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                     # Verificación de calidad, ruff, mypy y pytest
-│       ├── data_sync_cron.yml         # Sincronización diaria de telemetría Garmin
-│       └── sync_science_papers.yml    # Pipeline mensual de White Papers, Glosario y Chunks Parquet
-│
-├── configs/                           # Configuraciones de modelos y entornos
-│
+│       ├── ci.yml
+│       ├── data_sync_cron.yml
+│       └── sync_science_papers.yml
+├── configs/
 ├── data/
-│   ├── garmin_personal.db             # Base de datos relacional SQLite
+│   ├── garmin_personal.db
 │   ├── knowledge_base/
 │   │   ├── descripciones_metricas_garmin/
 │   │   ├── firstbeat/
 │   │   │   ├── dispositivos_garmin_sensores/
 │   │   │   └── variables_fisiologia_humana/
-│   │   └── processed_chunks/          # Datasets Apache Parquet particionados por fuente
-│   └── raw/                           # Snapshots JSON particionados por fecha
-│
+│   │   └── processed_chunks/
+│   └── raw/
 ├── src/
-│   ├── analytics/                     # Modelos de Machine Learning y Series Temporales
-│   │   ├── anomaly_detection.py       # Z-score, IQR, Isolation Forest
-│   │   ├── causality_engine.py        # Causalidad de Granger y correlación cruzada
-│   │   ├── dvc_manager.py             # Automatización de DVC
-│   │   ├── predictions_manager.py     # Gestor de predicciones biométricas
-│   │   └── time_series_models.py      # ARIMA, Prophet, Holt-Winters, Descomposición
-│   │
-│   ├── common/                        # Infraestructura común
-│   │   ├── database.py                # Gestor SQLite y esquemas relacionales
-│   │   ├── logger.py                  # Logging centralizado con Loguru
-│   │   └── r2_storage.py              # Cliente S3/Cloudflare R2
-│   │
-│   ├── ingestion/                     # Ingestión de datos y documentos
-│   │   ├── garmin_client.py           # Conexión con Garmin Connect API
-│   │   ├── garmin_sync.py             # Sincronización de ventana móvil de 7 días
-│   │   ├── sample_sync.py             # Smoke test rápido de conexión
+│   ├── analytics/
+│   │   ├── anomaly_detection.py
+│   │   ├── causality_engine.py
+│   │   ├── dvc_manager.py
+│   │   ├── predictions_manager.py
+│   │   └── time_series_models.py
+│   ├── common/
+│   │   ├── database.py
+│   │   ├── logger.py
+│   │   └── r2_storage.py
+│   ├── ingestion/
+│   │   ├── garmin_client.py
+│   │   ├── garmin_sync.py
+│   │   ├── sample_sync.py
 │   │   ├── sync_garmin_device_papers.py
 │   │   ├── sync_human_physiology_papers.py
 │   │   └── sync_garmin_metric_descriptions.py
-│   │
-│   └── rag/                           # Pipeline RAG (Fase 1: Chunking y Parquet)
-│       ├── language_detector.py       # NLP híbrido (langdetect + Gemini fallback)
-│       ├── ledger.py                  # DocumentLedger de estados y hashes SHA-256
-│       ├── loader_and_chunker.py      # Chunker BPE de 400 tokens / 40% overlap
-│       └── schemas.py                 # Esquemas Pydantic y PyArrow
-│
+│   └── rag/
+│       ├── language_detector.py
+│       ├── ledger.py
+│       ├── loader_and_chunker.py
+│       └── schemas.py
 ├── tests/
-│   └── unit/                          # 60 tests unitarios passing
-│
-├── .env.example                       # Plantilla limpia de variables de entorno activas
-├── pyproject.toml                     # Definición de dependencias y herramientas
-├── requirements.txt                   # Dependencias de producción activas
+│   └── unit/
+├── .env.example
+├── pyproject.toml
+├── requirements.txt
 └── README.md
 ```
+
+### Descripción de Componentes Principales
+
+| Directorio / Módulo | Responsabilidad Principal |
+| :--- | :--- |
+| **`.github/workflows/`** | Automatizaciones CI/CD: verificación de código (`ci.yml`), sincronización diaria (`data_sync_cron.yml`) y pipeline mensual de White Papers y Chunks (`sync_science_papers.yml`). |
+| **`data/`** | Capa de persistencia: base SQLite relacional (`garmin_personal.db`), snapshots JSON particionados (`raw/`) y base de conocimiento científica y de métricas (`knowledge_base/`). |
+| **`src/analytics/`** | Machine Learning y series de tiempo: descomposición temporal, modelos ARIMA/Prophet/Holt-Winters, detección de anomalías (Isolation Forest) y causalidad de Granger. |
+| **`src/common/`** | Infraestructura base: gestor de esquemas relacionales SQLite (`database.py`), cliente de almacenamiento Cloudflare R2 (`r2_storage.py`) y logging asíncrono con Loguru (`logger.py`). |
+| **`src/ingestion/`** | Clientes de ingestión: API de Garmin Connect (`garmin_client.py`, `garmin_sync.py`) y descargadores de literatura Firstbeat y glosarios de métricas. |
+| **`src/rag/`** | Pipeline de RAG (Fase 1): chunking por tokens BPE (400 tokens / 40% overlap), detección híbrida de idioma, control de estado con SHA-256 (`DocumentLedger`) y exportación a Apache Parquet. |
+| **`tests/unit/`** | Suite completa de 60 pruebas unitarias automatizadas con `pytest`. |
+
 
 ---
 
