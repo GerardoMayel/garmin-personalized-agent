@@ -91,6 +91,7 @@ def load_chunks_from_parquets() -> list[dict[str, Any]]:
                     pass
 
             chunk_source = str(pydict.get("tipo_fuente", [source_id])[i] or source_id)
+            chunk_file_hash = str(pydict.get("file_hash", [""])[i] or "")
             all_chunks.append(
                 {
                     "chunk_id": str(pydict["chunk_id"][i]),
@@ -105,6 +106,7 @@ def load_chunks_from_parquets() -> list[dict[str, Any]]:
                     "language": str(pydict["idioma"][i]),
                     "source_category": chunk_source,
                     "tags": parsed_tags,
+                    "file_hash": chunk_file_hash,
                 }
             )
 
@@ -173,29 +175,101 @@ def run_direct_to_storage_indexing(
         metadata={"hnsw:space": "cosine"},
     )
 
-    # 4. Verificar qué chunks ya están indexados (Idempotencia)
-    existing_ids: set[str] = set()
+    # 4. Reconciliación de estado contra ChromaDB (Nuevos, Modificados y Eliminados)
+    existing_meta_by_id: dict[str, dict[str, Any]] = {}
     try:
-        data = collection.get(include=[])
-        existing_ids = set(data.get("ids", []))
+        data = collection.get(include=["metadatas"])
+        ex_ids = data.get("ids", [])
+        ex_metas = data.get("metadatas") or []
+        for cid, meta in zip(ex_ids, ex_metas, strict=False):
+            existing_meta_by_id[cid] = meta if isinstance(meta, dict) else {}
     except Exception as e:
-        logger.warning(f"No se pudo consultar IDs existentes: {e}")
+        logger.warning(f"No se pudo consultar estado existente de ChromaDB: {e}")
 
-    logger.info(f"ChromaDB local contiene actualmente {len(existing_ids)} fragmentos indexados.")
-    missing_chunks = [c for c in chunks if c["chunk_id"] not in existing_ids]
+    existing_ids = set(existing_meta_by_id.keys())
+    target_ids = {c["chunk_id"] for c in chunks}
+
+    # A. Fragmentos eliminados u obsoletos (chunks que estaban en ChromaDB pero ya no están en Parquets)
+    orphaned_ids = list(existing_ids - target_ids)
+    if orphaned_ids:
+        logger.info(
+            f"Detectados {len(orphaned_ids)} fragmentos obsoletos/eliminados en ChromaDB. Purgando..."
+        )
+        for i in range(0, len(orphaned_ids), 200):
+            collection.delete(ids=orphaned_ids[i : i + 200])
+        logger.info(f"✓ Purgados {len(orphaned_ids)} fragmentos huérfanos de la colección.")
+
+    # B. Fragmentos nuevos o con documento modificado (hash SHA-256 diferente)
+    to_embed_chunks: list[dict[str, Any]] = []
+    metadata_backfill_ids: list[str] = []
+    metadata_backfill_metas: list[dict[str, Any]] = []
+
+    for c in chunks:
+        cid = c["chunk_id"]
+        if cid not in existing_meta_by_id:
+            to_embed_chunks.append(c)
+        else:
+            old_meta = existing_meta_by_id[cid]
+            old_hash = old_meta.get("file_hash")
+            if c["file_hash"] and old_hash and c["file_hash"] != old_hash:
+                logger.info(
+                    f"Documento modificado detectado para chunk '{cid}' "
+                    f"({old_hash[:8]} -> {c['file_hash'][:8]}). Re-indexando..."
+                )
+                to_embed_chunks.append(c)
+            elif not old_hash and c["file_hash"]:
+                # Retrocompatibilidad: registrar file_hash en metadata sin recalcular embeddings
+                metadata_backfill_ids.append(cid)
+                updated_meta = dict(old_meta)
+                updated_meta["file_hash"] = c["file_hash"]
+                metadata_backfill_metas.append(updated_meta)
+
+    # Actualizar metadatos faltantes en lote (costo 0 API)
+    if metadata_backfill_ids:
+        logger.info(
+            f"Actualizando metadata de trazabilidad (file_hash) para {len(metadata_backfill_ids)} fragmentos sin re-calcular embeddings..."
+        )
+        for i in range(0, len(metadata_backfill_ids), 200):
+            collection.update(
+                ids=metadata_backfill_ids[i : i + 200],
+                metadatas=cast(Any, metadata_backfill_metas[i : i + 200]),
+            )
+
+    logger.info(
+        f"Diagnóstico ChromaDB: {len(existing_ids)} existentes en base | "
+        f"{len(orphaned_ids)} purgados | "
+        f"{len(to_embed_chunks)} nuevos/modificados a vectorizar."
+    )
+
+    # C. Si no hay cambios ni nuevos embeddings y no se fuerza reconstrucción: Salir temprano
+    has_changes = bool(to_embed_chunks or orphaned_ids or metadata_backfill_ids)
+    if not has_changes and not force:
+        logger.info(
+            "✅ Todos los documentos y fragmentos están 100% sincronizados con ChromaDB. "
+            "No se requieren llamadas a Gemini API ni actualización en Cloudflare R2."
+        )
+        return {
+            "status": "up_to_date",
+            "newly_indexed": 0,
+            "purged_orphans": len(orphaned_ids),
+            "total_in_collection": collection.count(),
+            "archive_path": str(DEFAULT_ARCHIVE_PATH),
+        }
 
     total_indexed = 0
-    if missing_chunks:
-        logger.info(f"Indexando {len(missing_chunks)} nuevos fragmentos con Gemini Embeddings...")
+    if to_embed_chunks:
+        logger.info(
+            f"Indexando {len(to_embed_chunks)} fragmentos nuevos/modificados con Gemini Embeddings..."
+        )
         embedding_engine = GeminiEmbeddingEngine(batch_size=batch_size)
 
-        texts = [c["content"] for c in missing_chunks]
-        titles = [f"{c['source']}:{c['document_id']}" for c in missing_chunks]
+        texts = [c["content"] for c in to_embed_chunks]
+        titles = [f"{c['source']}:{c['document_id']}" for c in to_embed_chunks]
         embeddings = embedding_engine.embed_documents(
             texts=texts, titles=titles, batch_size=batch_size
         )
 
-        ids = [c["chunk_id"] for c in missing_chunks]
+        ids = [c["chunk_id"] for c in to_embed_chunks]
         metadatas = [
             {
                 "source": c["source"],
@@ -207,8 +281,9 @@ def run_direct_to_storage_indexing(
                 "language": c["language"],
                 "source_category": c["source_category"],
                 "tags": ",".join(c["tags"]),
+                "file_hash": c["file_hash"],
             }
-            for c in missing_chunks
+            for c in to_embed_chunks
         ]
 
         # Upsert en bloques de 100
@@ -226,11 +301,6 @@ def run_direct_to_storage_indexing(
             )
             total_indexed += len(b_ids)
             logger.info(f"Progreso de upsert local: {total_indexed}/{len(ids)} fragmentos.")
-
-    else:
-        logger.info(
-            "Todos los fragmentos ya se encuentran indexados en ChromaDB. Nada nuevo por calcular."
-        )
 
     final_count = collection.count()
     logger.info(f"Total consolidado en ChromaDB local: {final_count} vectores.")
@@ -279,6 +349,7 @@ def run_direct_to_storage_indexing(
     return {
         "status": "completed",
         "newly_indexed": total_indexed,
+        "purged_orphans": len(orphaned_ids),
         "total_in_collection": final_count,
         "archive_path": str(DEFAULT_ARCHIVE_PATH),
     }
