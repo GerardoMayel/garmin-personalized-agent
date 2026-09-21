@@ -85,9 +85,7 @@ class ChromaVectorStore:
         }
         resp = requests.post(url, json=payload, headers=self._get_headers(), timeout=60)
         if resp.status_code != 200:
-            raise RuntimeError(
-                f"Error en upsert remoto ({resp.status_code}): {resp.text[:300]}"
-            )
+            raise RuntimeError(f"Error en upsert remoto ({resp.status_code}): {resp.text[:300]}")
         result = resp.json()
         return int(result.get("upserted_count", len(ids)))
 
@@ -132,9 +130,17 @@ class ChromaVectorStore:
         url = f"{self.remote_url}/health"
         resp = requests.get(url, headers=self._get_headers(), timeout=15)
         if resp.status_code != 200:
-            raise RuntimeError(
-                f"Healthcheck remoto falló ({resp.status_code}): {resp.text[:300]}"
-            )
+            raise RuntimeError(f"Healthcheck remoto falló ({resp.status_code}): {resp.text[:300]}")
         result: dict[str, Any] = resp.json()
         return result
 
+    def refresh_from_r2(self) -> dict[str, Any]:
+        """Solicita al backend remoto que recargue/descomprima la base vectorial desde Cloudflare R2."""
+        url = f"{self.remote_url}/refresh-from-r2"
+        resp = requests.post(url, headers=self._get_headers(), timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Refresh remoto desde R2 falló ({resp.status_code}): {resp.text[:300]}"
+            )
+        result: dict[str, Any] = resp.json()
+        return result

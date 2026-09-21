@@ -114,14 +114,23 @@ jobs:
           uv run python -m src.common.r2_storage --sync-kb
           uv run python -m src.common.r2_storage --sync-chunks
 
-      - name: "Componente Indexer: Vectorizar e Indexar Chunks a ChromaDB Remoto (Hugging Face Spaces)"
+      - name: "Componente Indexer: Vectorizar e Indexar Direct-to-Storage (ChromaDB + Cloudflare R2)"
         if: ${{ github.event.inputs.skip_indexing != 'true' }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           CHROMA_REMOTE_URL: ${{ secrets.CHROMA_REMOTE_URL }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          uv run python -m src.rag.index_to_chroma --url "${{ secrets.CHROMA_REMOTE_URL }}"
+          EXTRA_INDEX_FLAGS="--r2-sync"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            EXTRA_INDEX_FLAGS="$EXTRA_INDEX_FLAGS --force"
+          fi
+          uv run python -m src.rag.index_to_chroma $EXTRA_INDEX_FLAGS
 
       - name: Upload Sync Artifacts (Logs, Ledger & Reports)
         if: always()

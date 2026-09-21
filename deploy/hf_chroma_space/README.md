@@ -19,6 +19,7 @@ FastAPI service exposing ChromaDB vector storage for the Garmin Personal Insight
 - `GET /stats`: Breakdown of chunks per source in `biometric_knowledge_base`.
 - `POST /upsert`: Batch upsert of chunk IDs, embeddings, text documents, and metadata.
 - `POST /query`: Vector search query with embedding vector, `top_k`, and metadata filtering.
+- `POST /refresh-from-r2`: Synchronize and decompress the latest ChromaDB index directly from Cloudflare R2.
 - `GET /docs`: Interactive Swagger UI documentation.
 
 ## Security

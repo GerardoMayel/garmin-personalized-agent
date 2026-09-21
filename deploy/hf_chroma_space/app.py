@@ -7,8 +7,11 @@ with endpoints for health checks, batch upserts, vector queries, and collection 
 from __future__ import annotations
 
 import os
+import tarfile
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 import chromadb
@@ -20,10 +23,71 @@ from pydantic import BaseModel, Field
 COLLECTION_NAME = "biometric_knowledge_base"
 DEFAULT_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
 
+
+def sync_chroma_from_r2_if_needed(force: bool = False) -> bool:
+    """Descarga y descomprime chroma_db.tar.gz desde Cloudflare R2 si no existe o si se fuerza."""
+    persist_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", DEFAULT_PERSIST_DIR))
+    sqlite_file = persist_dir / "chroma.sqlite3"
+
+    if sqlite_file.exists() and not force:
+        return True
+
+    r2_account_id = os.getenv("R2_ACCOUNT_ID")
+    r2_access_key = os.getenv("R2_ACCESS_KEY_ID")
+    r2_secret_key = os.getenv("R2_SECRET_ACCESS_KEY")
+    r2_bucket = os.getenv("R2_BUCKET_NAME")
+
+    if not (r2_account_id and r2_access_key and r2_secret_key and r2_bucket):
+        return False
+
+    endpoint_url = (
+        os.getenv("R2_ENDPOINT_URL") or f"https://{r2_account_id}.r2.cloudflarestorage.com"
+    )
+
+    try:
+        import boto3
+        from botocore.config import Config
+
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=r2_access_key,
+            aws_secret_access_key=r2_secret_key,
+            config=Config(signature_version="s3v4"),
+            region_name="auto",
+        )
+
+        tar_path = Path("/tmp/chroma_db.tar.gz")
+        print(f"Descargando chroma_db.tar.gz desde r2://{r2_bucket}/knowledge_base/vector_db/...")
+        s3.download_file(r2_bucket, "knowledge_base/vector_db/chroma_db.tar.gz", str(tar_path))
+
+        target_parent = persist_dir.parent
+        target_parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path=target_parent)
+
+        if tar_path.exists():
+            tar_path.unlink()
+
+        print(f"Base vectorial restaurada exitosamente en {persist_dir}.")
+        return True
+    except Exception as e:
+        print(f"Aviso: No se pudo sincronizar base vectorial desde Cloudflare R2: {e}")
+        return False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Ciclo de vida de la aplicación: inicializa datos desde R2 al arrancar."""
+    sync_chroma_from_r2_if_needed()
+    yield
+
+
 app = FastAPI(
     title="Garmin Biometric ChromaDB Vector Backend",
     description="Vector database service hosting biometric knowledge base chunks for RAG inference.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -37,15 +101,22 @@ app.add_middleware(
 security = HTTPBearer(auto_error=False)
 
 
-def get_chroma_collection() -> chromadb.Collection:
-    """Obtiene o inicializa la colección persistente en ChromaDB."""
-    persist_dir = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
-    os.makedirs(persist_dir, exist_ok=True)
-    client = chromadb.PersistentClient(path=persist_dir)
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+_client: chromadb.PersistentClient | None = None
+_collection: chromadb.Collection | None = None
+
+
+def get_chroma_collection(force_reload: bool = False) -> chromadb.Collection:
+    """Obtiene o inicializa la colección persistente en ChromaDB con soporte de recarga."""
+    global _client, _collection
+    if _collection is None or force_reload:
+        persist_dir = os.getenv("CHROMA_PERSIST_DIRECTORY", DEFAULT_PERSIST_DIR)
+        os.makedirs(persist_dir, exist_ok=True)
+        _client = chromadb.PersistentClient(path=persist_dir)
+        _collection = _client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+    return _collection
 
 
 def verify_auth(
@@ -266,4 +337,18 @@ def delete_chunks(
         "status": "ok",
         "deleted_count": len(payload.ids),
         "total_remaining": collection.count(),
+    }
+
+
+@app.post("/refresh-from-r2")
+def refresh_from_r2(
+    _auth: Annotated[bool, Depends(verify_auth)] = True,
+) -> dict[str, Any]:
+    """Fuerza la descarga y descompresión de la base vectorial desde Cloudflare R2."""
+    success = sync_chroma_from_r2_if_needed(force=True)
+    collection = get_chroma_collection(force_reload=True)
+    return {
+        "status": "synced" if success else "failed",
+        "total_chunks": collection.count(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }

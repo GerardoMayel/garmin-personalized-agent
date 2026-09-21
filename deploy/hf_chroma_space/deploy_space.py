@@ -39,9 +39,7 @@ def deploy_to_hf_space(space_repo_id: str, token: str | None = None) -> None:
         api.space_info(repo_id=space_repo_id)
         print(f"✅ Space '{space_repo_id}' encontrado.")
     except Exception:
-        print(
-            f"ℹ️ Space '{space_repo_id}' no encontrado. Creando nuevo Space (Private)..."
-        )
+        print(f"ℹ️ Space '{space_repo_id}' no encontrado. Creando nuevo Space (Private)...")
         api.create_repo(
             repo_id=space_repo_id,
             repo_type="space",

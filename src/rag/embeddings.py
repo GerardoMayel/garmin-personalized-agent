@@ -20,8 +20,8 @@ logger = get_logger("GeminiEmbeddings")
 
 DEFAULT_MODEL = "gemini-embedding-001"
 DEFAULT_DIMENSIONS = 768
-DEFAULT_BATCH_SIZE = 25
-MAX_RETRIES = 5
+DEFAULT_BATCH_SIZE = 15
+MAX_RETRIES = 6
 INITIAL_BACKOFF = 2.0
 
 
@@ -182,9 +182,9 @@ class GeminiEmbeddingEngine:
                 f"({len(all_embeddings)}/{len(texts)} acumulados)."
             )
 
-            # Pequeña pausa de regulación entre lotes para respetar el límite RPM gratuito
+            # Pausa de regulación entre lotes para respetar holgadamente el límite de 100 RPM
             if i + effective_batch_size < len(texts):
-                time.sleep(1.0)
+                time.sleep(10.0)
 
         logger.info(f"Embeddings generados exitosamente para {len(all_embeddings)} documentos.")
         return all_embeddings

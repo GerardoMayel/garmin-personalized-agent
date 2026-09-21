@@ -408,6 +408,26 @@ class R2StorageClient:
             logger.error(f"Error restaurando processed_chunks desde R2: {e}")
             return stats
 
+    def upload_vector_db(
+        self,
+        local_archive: str | Path = "data/chroma_db.tar.gz",
+        remote_key: str = "knowledge_base/vector_db/chroma_db.tar.gz",
+    ) -> bool:
+        """Upload compressed ChromaDB archive to Cloudflare R2."""
+        return self.upload_file(local_archive, remote_key)
+
+    def download_vector_db(
+        self,
+        remote_key: str = "knowledge_base/vector_db/chroma_db.tar.gz",
+        local_archive: str | Path = "data/chroma_db.tar.gz",
+    ) -> bool:
+        """Download compressed ChromaDB archive from Cloudflare R2."""
+        return self.download_file(remote_key, local_archive)
+
+
+# Alias for backward compatibility and semantic clarity
+R2StorageManager = R2StorageClient
+
 
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""
@@ -455,6 +475,16 @@ def main() -> None:
         "--restore-chunks",
         action="store_true",
         help="Download processed_chunks/ datasets and ledger from R2 into data/knowledge_base/processed_chunks/",
+    )
+    parser.add_argument(
+        "--sync-vectordb",
+        action="store_true",
+        help="Upload data/chroma_db.tar.gz to knowledge_base/vector_db/ in R2",
+    )
+    parser.add_argument(
+        "--restore-vectordb",
+        action="store_true",
+        help="Download chroma_db.tar.gz from knowledge_base/vector_db/ in R2",
     )
     parser.add_argument(
         "--db-path", type=Path, default=DEFAULT_DB_PATH, help="Path to SQLite database"
@@ -526,6 +556,16 @@ def main() -> None:
         res = client.restore_processed_chunks()
         print(f"Resultado de restauración processed_chunks desde R2: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_vectordb:
+        ok = client.upload_vector_db()
+        print(f"Resultado de subida vector_db a R2: {'Éxito' if ok else 'Fallo'}")
+        sys.exit(0 if ok else 1)
+
+    if args.restore_vectordb:
+        ok = client.download_vector_db()
+        print(f"Resultado de descarga vector_db desde R2: {'Éxito' if ok else 'Fallo'}")
+        sys.exit(0 if ok else 1)
 
     parser.print_help()
 

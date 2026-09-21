@@ -101,3 +101,22 @@ def test_remote_stats_and_health() -> None:
         assert health["status"] == "healthy"
         assert mock_get.call_args[0][0] == "https://mock-space.hf.space/health"
 
+
+def test_remote_refresh_from_r2() -> None:
+    """Debe enviar petición POST a /refresh-from-r2."""
+    store = ChromaVectorStore(
+        collection_name="test_collection",
+        remote_url="https://mock-space.hf.space",
+        auth_token="test_hf_token",
+    )
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"status": "synced", "total_chunks": 702}
+        mock_post.return_value = mock_resp
+
+        res = store.refresh_from_r2()
+        assert res["status"] == "synced"
+        assert res["total_chunks"] == 702
+        assert mock_post.call_args[0][0] == "https://mock-space.hf.space/refresh-from-r2"

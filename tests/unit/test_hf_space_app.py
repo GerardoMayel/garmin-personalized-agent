@@ -87,3 +87,14 @@ def test_hf_space_auth_enforcement() -> None:
             json={"ids": [], "embeddings": [], "documents": [], "metadatas": []},
         )
         assert resp.status_code == 200
+
+
+def test_hf_space_refresh_from_r2() -> None:
+    """Verifica el endpoint /refresh-from-r2."""
+    with patch("deploy.hf_chroma_space.app.sync_chroma_from_r2_if_needed", return_value=True):
+        client = TestClient(app)
+        resp = client.post("/refresh-from-r2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "synced"
+        assert "total_chunks" in data
