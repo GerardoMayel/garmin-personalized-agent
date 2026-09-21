@@ -299,7 +299,7 @@ uv run python deploy/hf_chroma_space/deploy_space.py --space tu_usuario_hf/garmi
 
 ### 8. Ejecución de Tests y Verificación de Código
 ```bash
-# Ejecutar suite de 69 tests unitarios
+# Ejecutar suite de 102 tests unitarios
 uv run pytest
 
 # Verificación de linter y formateo
@@ -317,6 +317,6 @@ uv run mypy src tests
 - [x] **Fase 0**: Ingestión de telemetría Garmin y persistencia relacional en SQLite.
 - [x] **Fase 1**: Ingestión de literatura Firstbeat (3 fuentes), glosario de métricas, chunker BPE de 400 tokens, esquemas Parquet, reconciliación con DocumentLedger y CI/CD mensual en GitHub Actions.
 - [x] **Fase 2**: Generación de Embeddings Densos con Google Gemini (768-dim), Backend Vectorial ChromaDB en Hugging Face Spaces (Docker), pipeline de indexación batch y Keep-Alive automatizado.
-- [ ] **Fase 3**: Recuperador Híbrido (Dense Semantic + BM25 Lexical con Reranker cross-encoder).
+- [x] **Fase 3**: Recuperador Híbrido (Dense Semantic + BM25 Lexical con Reranker RRF), Guardrails Multicapa NLP, Filtro Estricto de Idioma (Español/Inglés) y Control de Presupuesto LLM.
 - [ ] **Fase 4**: Agente de Razonamiento Fisiológico con LangGraph y Dashboard interactivo en Streamlit.
 
