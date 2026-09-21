@@ -207,6 +207,72 @@ uv run python -m src.common.database --stats
 
 ---
 
+## 🛠️ Herramientas Text-to-SQL (Function Calling Determinista)
+
+Para consultar métricas biométricas personales con máxima precisión sin depender de que un LLM genere sentencias SQL arbitrarias y propensas a errores de sintaxis o alucinación de columnas, el sistema implementa una arquitectura de **Function Calling Determinista** ([`src/tools/garmin_sql_tools.py`](file:///Users/mayelmacbookm4pro/repos/garmin-personalized-agent/src/tools/garmin_sql_tools.py) y [`src/agents/tools.py`](file:///Users/mayelmacbookm4pro/repos/garmin-personalized-agent/src/agents/tools.py)):
+
+```text
+  [ Usuario / Agente ] 
+           │ (Pregunta: "¿Cómo anduvo mi sueño y VFC los últimos 3 días?")
+           ▼
+  [ LLM Router / Classifier ] ──► Extrae parámetros: {"days": 3}
+           │
+           ▼
+  [ Function Calling Tool ] ────► get_garmin_actuals(days=3)
+           │
+           ▼ (Consulta SQL parametrizada y optimizada en <1ms)
+  [ garmin_history.db (SQLite) ]
+           │
+           ▼
+  [ JSON Estructurado ] ────────► Inyectado en Contexto al Coach Mexicano / RAG
+```
+
+### 1. Grupo 1: Datos Reales (`get_garmin_actuals`)
+Recupera la telemetría real consolidada de la tabla `consolidated_daily_actuals` para los últimos `N` días cerrados a día vencido:
+- **Métricas Equivalentes a Pronósticos**: Frecuencia cardíaca en reposo (`resting_heart_rate`), variabilidad (`hrv_rmssd`, `hrv_weekly_avg`, `hrv_status`), estrés diario (`daily_avg_stress`, `daily_max_stress`), puntuación de sueño (`sleep_score`), horas de sueño (`total_sleep_hours`), pasos (`total_steps`) y desglose calórico (`active_kilocalories`, `resting_kilocalories`, `total_kilocalories`).
+- **4 Métricas Clínicas Extras (Sin Pronóstico)**:
+  1. *Arquitectura de Fases de Sueño*: Horas y segundos de sueño profundo (`deep_sleep_hours`), REM (`rem_sleep_hours`), ligero y tiempo despierto, junto al estrés vegetativo durante el sueño (`avg_sleep_stress`).
+  2. *Oximetría y Respiración Nocturna*: Saturación de oxígeno media (`avg_spo2`), mínima (`lowest_spo2`) y frecuencia respiratoria (`avg_respiration` en rpm).
+  3. *Distribución Temporal de Estrés*: Horas de reposo restaurativo parasimpático (`rest_stress_hours`), horas en estrés alto (`high_stress_hours`) y duraciones intermedias.
+  4. *Carga Cardiovascular Deportiva*: Número de actividades del día (`activity_count`), duración total en minutos (`total_activity_minutes`), distancia en km (`total_activity_distance_km`), calorías quemadas y FC media/máx del entrenamiento.
+- **Regla Estricta**: Excluye permanentemente cualquier campo de edad biológica (`fitness_age`, `chronological_age`, `fitness_age_gap`).
+
+```python
+from src.tools.garmin_sql_tools import get_garmin_actuals
+
+# Consultar los últimos 3 días cerrados
+res = get_garmin_actuals(days=3)
+print(res["period"])   # {'start_date': '2026-09-18', 'end_date': '2026-09-20', 'total_days_retrieved': 3}
+print(res["summary"])  # Promedios de RHR, HRV, estrés, sueño, pasos y actividades del periodo
+```
+
+### 2. Grupo 2: Pronósticos Biométricos (`get_garmin_forecasts`)
+Consulta las inferencias estadísticas de Machine Learning almacenadas en `consolidated_biometric_forecasts`:
+- **Parámetros**: `metric` (opcional, para filtrar una métrica específica como `resting_heart_rate` o consultar todas) y `horizon_days` (default: 14 días).
+- **Cálculo de Días Hacia Adelante**: Determina automáticamente `days_ahead` (ej. $+1, +2, +3 \dots +14$ días a futuro) respecto a la última fecha real cerrada.
+- **Frases Resumen en Lenguaje Natural**: Genera declaraciones formateadas para inyectar directo al prompt:
+  > *"El pronóstico para dentro de 3 día(s) (2026-09-23) de resting_heart_rate es de 58.03 ppm (IC 95%: [55.56 a 60.51] ppm), proyectado por Ensemble_Prophet_HoltWinters."*
+- **Regla Estricta**: Bloquea y excluye consultas sobre edad biológica o fitness age.
+
+```python
+from src.tools.garmin_sql_tools import get_garmin_forecasts
+
+# Consultar el pronóstico de pulso en reposo para los próximos 7 días
+fc = get_garmin_forecasts(metric="resting_heart_rate", horizon_days=7)
+for statement in fc["summary_statements"][:3]:
+    print(statement)
+```
+
+### 3. Integración con Agentes LangGraph
+Ambas herramientas están decoradas con `@tool` de `langchain_core` en [`src/agents/tools.py`](file:///Users/mayelmacbookm4pro/repos/garmin-personalized-agent/src/agents/tools.py) y listas para ser enlazadas al grafo de estados:
+```python
+from src.agents.tools import get_garmin_actuals_tool, get_garmin_forecasts_tool
+
+tools = [get_garmin_actuals_tool, get_garmin_forecasts_tool]
+```
+
+---
+
 ## ☁️ Almacenamiento en Cloudflare R2
 
 El cliente `src/common/r2_storage.py` gestiona la sincronización remota contra Cloudflare R2:
