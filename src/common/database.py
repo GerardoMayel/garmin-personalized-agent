@@ -148,7 +148,26 @@ class GarminDatabase:
                 """
             )
 
-            # 6. Activities
+            # 6. Fitness Age records (Fitness Age 2.0 microservice)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fitness_age_records (
+                    calendar_date TEXT PRIMARY KEY,
+                    chronological_age REAL,
+                    fitness_age REAL,
+                    achievable_fitness_age REAL,
+                    fitness_age_gap REAL,
+                    body_fat_pct REAL,
+                    rhr_component REAL,
+                    vigorous_minutes_avg REAL,
+                    vigorous_days_avg REAL,
+                    target_potential_age REAL,
+                    updated_at TEXT
+                )
+                """
+            )
+
+            # 7. Activities
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS activities (
@@ -414,6 +433,84 @@ class GarminDatabase:
             )
         return True
 
+    def upsert_fitness_age(self, data: dict[str, Any], calendar_date: str | None = None) -> bool:
+        """Upsert fitness age metrics from Garmin get_fitnessage_data JSON."""
+        date_str = calendar_date or (data.get("lastUpdated") or "")[:10]
+        if not date_str:
+            return False
+
+        chronological_age = data.get("chronologicalAge")
+        fitness_age = data.get("fitnessAge")
+        achievable_fitness_age = data.get("achievableFitnessAge")
+        fitness_age_gap = (
+            round(chronological_age - fitness_age, 2)
+            if chronological_age is not None and fitness_age is not None
+            else None
+        )
+        components = data.get("components", {}) if isinstance(data.get("components"), dict) else {}
+        body_fat_pct = (
+            components.get("bodyFat", {}).get("value")
+            if isinstance(components.get("bodyFat"), dict)
+            else None
+        )
+        rhr_component = (
+            components.get("rhr", {}).get("value")
+            if isinstance(components.get("rhr"), dict)
+            else None
+        )
+        vigorous_min_avg = (
+            components.get("vigorousMinutesAvg", {}).get("value")
+            if isinstance(components.get("vigorousMinutesAvg"), dict)
+            else None
+        )
+        vigorous_days_avg = (
+            components.get("vigorousDaysAvg", {}).get("value")
+            if isinstance(components.get("vigorousDaysAvg"), dict)
+            else None
+        )
+        target_potential_age = (
+            components.get("vigorousMinutesAvg", {}).get("potentialAge")
+            if isinstance(components.get("vigorousMinutesAvg"), dict)
+            else None
+        )
+
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO fitness_age_records (
+                    calendar_date, chronological_age, fitness_age, achievable_fitness_age,
+                    fitness_age_gap, body_fat_pct, rhr_component, vigorous_minutes_avg,
+                    vigorous_days_avg, target_potential_age, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(calendar_date) DO UPDATE SET
+                    chronological_age = excluded.chronological_age,
+                    fitness_age = excluded.fitness_age,
+                    achievable_fitness_age = excluded.achievable_fitness_age,
+                    fitness_age_gap = excluded.fitness_age_gap,
+                    body_fat_pct = excluded.body_fat_pct,
+                    rhr_component = excluded.rhr_component,
+                    vigorous_minutes_avg = excluded.vigorous_minutes_avg,
+                    vigorous_days_avg = excluded.vigorous_days_avg,
+                    target_potential_age = excluded.target_potential_age,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    date_str,
+                    chronological_age,
+                    fitness_age,
+                    achievable_fitness_age,
+                    fitness_age_gap,
+                    body_fat_pct,
+                    rhr_component,
+                    vigorous_min_avg,
+                    vigorous_days_avg,
+                    target_potential_age,
+                    now,
+                ),
+            )
+        return True
+
     def upsert_activity(self, data: dict[str, Any], fit_zip_path: str | None = None) -> bool:
         """Upsert activity summary and local .fit.zip location."""
         act_id = data.get("activityId")
@@ -484,6 +581,7 @@ class GarminDatabase:
             "hrv_records": 0,
             "stress_records": 0,
             "max_metrics": 0,
+            "fitness_age_records": 0,
             "activities": 0,
         }
 
@@ -548,7 +646,17 @@ class GarminDatabase:
                 except Exception as e:
                     logger.debug(f"Could not load {metrics_file}: {e}")
 
-            # 6. Activities subfolder
+            # 6. Fitness Age
+            fitness_file = day_dir / "fitness_age.json"
+            if fitness_file.exists():
+                try:
+                    with open(fitness_file, encoding="utf-8") as f:
+                        if self.upsert_fitness_age(json.load(f), calendar_date=day_dir.name):
+                            stats["fitness_age_records"] += 1
+                except Exception as e:
+                    logger.debug(f"Could not load {fitness_file}: {e}")
+
+            # 7. Activities subfolder
             act_dir = day_dir / "activities"
             if act_dir.exists() and act_dir.is_dir():
                 for act_json in act_dir.glob("activity_*_summary.json"):
@@ -587,12 +695,16 @@ class GarminDatabase:
                     h.last_night_avg AS hrv_rmssd,
                     h.status AS hrv_status,
                     st.avg_stress_level,
-                    m.vo2_max_running
+                    m.vo2_max_running,
+                    f.fitness_age,
+                    f.fitness_age_gap,
+                    f.achievable_fitness_age
                 FROM daily_summaries d
                 LEFT JOIN sleep_records s ON d.calendar_date = s.calendar_date
                 LEFT JOIN hrv_records h ON d.calendar_date = h.calendar_date
                 LEFT JOIN stress_records st ON d.calendar_date = st.calendar_date
                 LEFT JOIN max_metrics m ON d.calendar_date = m.calendar_date
+                LEFT JOIN fitness_age_records f ON d.calendar_date = f.calendar_date
                 WHERE d.calendar_date BETWEEN ? AND ?
                 ORDER BY d.calendar_date ASC
             """
@@ -616,6 +728,7 @@ class GarminDatabase:
             "hrv_records",
             "stress_records",
             "max_metrics",
+            "fitness_age_records",
             "activities",
         ]
         with self.get_connection() as conn:
@@ -635,6 +748,7 @@ class GarminDatabase:
             "hrv_records",
             "stress_records",
             "max_metrics",
+            "fitness_age_records",
             "activities",
         ]
         counts = {}

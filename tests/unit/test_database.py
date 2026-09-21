@@ -28,6 +28,7 @@ class TestGarminDatabase:
         assert "hrv_records" in counts
         assert "stress_records" in counts
         assert "max_metrics" in counts
+        assert "fitness_age_records" in counts
         assert "activities" in counts
         assert all(count == 0 for count in counts.values())
 
@@ -143,6 +144,34 @@ class TestGarminDatabase:
             assert row["activity_name"] == "Evening Tempo Run"
             assert row["calendar_date"] == "2026-09-14"
             assert row["fit_zip_path"] == "/data/activity_123456.zip"
+
+    def test_upsert_fitness_age(self, temp_db: GarminDatabase):
+        """Should insert fitness age metrics with biological gap calculation."""
+        payload = {
+            "chronologicalAge": 40,
+            "fitnessAge": 34.76,
+            "achievableFitnessAge": 34.50,
+            "components": {
+                "bodyFat": {"value": 16.6},
+                "rhr": {"value": 57},
+                "vigorousMinutesAvg": {"value": 38.6, "potentialAge": 33.9},
+                "vigorousDaysAvg": {"value": 1.3},
+            },
+            "lastUpdated": "2026-09-14T00:00:00.0",
+        }
+
+        assert temp_db.upsert_fitness_age(payload, calendar_date="2026-09-14") is True
+        assert temp_db.count_records()["fitness_age_records"] == 1
+
+        with temp_db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM fitness_age_records WHERE calendar_date = '2026-09-14'").fetchone()
+            assert row["chronological_age"] == 40.0
+            assert row["fitness_age"] == 34.76
+            assert row["fitness_age_gap"] == 5.24
+            assert row["achievable_fitness_age"] == 34.50
+            assert row["body_fat_pct"] == 16.6
+            assert row["rhr_component"] == 57.0
+            assert row["target_potential_age"] == 33.9
 
     def test_ingest_raw_directory_and_timeseries_query(
         self, temp_db: GarminDatabase, tmp_path: Path

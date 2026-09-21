@@ -88,6 +88,16 @@ class TestGarminDataIngestor:
         mock_client.get_stress_data.return_value = {"stress_levels": [20, 25, 30]}
         mock_client.get_user_summary.return_value = {"steps": 10500, "resting_hr": 48}
         mock_client.get_max_metrics.return_value = {"vo2_max_running": 54}
+        mock_client.get_fitnessage_data.return_value = {
+            "chronologicalAge": 40,
+            "fitnessAge": 34.76,
+            "achievableFitnessAge": 34.50,
+            "components": {
+                "bodyFat": {"value": 16.6},
+                "rhr": {"value": 57},
+            },
+            "lastUpdated": "2026-09-14T00:00:00.0",
+        }
 
         raw_dir = tmp_path / "raw"
         ingestor = GarminDataIngestor(
@@ -108,6 +118,7 @@ class TestGarminDataIngestor:
         assert (day_dir / "stress.json").exists()
         assert (day_dir / "daily_summary.json").exists()
         assert (day_dir / "max_metrics.json").exists()
+        assert (day_dir / "fitness_age.json").exists()
 
         # Check content integrity
         with open(day_dir / "sleep.json", encoding="utf-8") as f:
@@ -124,6 +135,7 @@ class TestGarminDataIngestor:
         mock_client.get_stress_data.return_value = {"stress": 22}
         mock_client.get_user_summary.return_value = {"steps": 8000}
         mock_client.get_max_metrics.return_value = {"vo2_max": 52}
+        mock_client.get_fitnessage_data.return_value = {"fitnessAge": 35.0}
 
         raw_dir = tmp_path / "raw"
         ingestor = GarminDataIngestor(
@@ -185,6 +197,7 @@ class TestGarminDataIngestor:
         mock_client.get_stress_data.return_value = {}
         mock_client.get_user_summary.return_value = {}
         mock_client.get_max_metrics.return_value = {}
+        mock_client.get_fitnessage_data.return_value = {}
         mock_client.get_activities.return_value = []
 
         ingestor = GarminDataIngestor(
