@@ -138,6 +138,17 @@ def compute_physiological_bounds(
         floor = 0.0
         cap = max(obs_max * 1.5, 30000.0)
 
+    elif metric_name == "fitness_age":
+        # Fitness age (years): bounded by achievable potential floor (~33.5 - 34.0) and chronological age cap (~40.5)
+        floor = max(28.0, min(obs_min - 0.5, 33.5))
+        cap = max(obs_max + 1.0, 41.0)
+
+    elif metric_name == "fitness_age_gap":
+        # Biological rejuvenation gap (years younger): Chronological Age - Fitness Age
+        # Empirical gap is ~5.1 - 5.3 years, target potential ~6.1 years
+        floor = max(0.0, min(obs_min - 1.0, 3.5))
+        cap = max(obs_max + 1.5, 7.5)
+
     else:
         # Generic heuristic
         if obs_min >= 0:
@@ -196,8 +207,8 @@ def get_anomaly_dates_for_target(
     except Exception as exc:
         logger.debug(f"Multi-feature anomaly detection skipped during TS prep: {exc}")
 
-    # 2. Univariate Tukey IQR rule on target_col
-    if target_col in df.columns and "calendar_date" in df.columns:
+    # 2. Univariate Tukey IQR rule on target_col (excluding slow-moving adaptation metrics)
+    if target_col in df.columns and "calendar_date" in df.columns and target_col not in ("fitness_age", "fitness_age_gap"):
         vals = pd.to_numeric(df[target_col], errors="coerce")
         q25, q75 = vals.quantile(0.25), vals.quantile(0.75)
         iqr = q75 - q25

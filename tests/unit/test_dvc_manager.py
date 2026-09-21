@@ -99,6 +99,24 @@ def mock_garmin_db(tmp_path: Path) -> Path:
         )
         """
     )
+    # Create fitness_age_records
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fitness_age_records (
+            calendar_date TEXT PRIMARY KEY,
+            chronological_age REAL,
+            fitness_age REAL,
+            achievable_fitness_age REAL,
+            fitness_age_gap REAL,
+            body_fat_pct REAL,
+            rhr_component REAL,
+            vigorous_minutes_avg REAL,
+            vigorous_days_avg REAL,
+            target_potential_age REAL,
+            updated_at TIMESTAMP
+        )
+        """
+    )
     # Create activities
     cur.execute(
         """

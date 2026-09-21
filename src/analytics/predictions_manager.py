@@ -57,6 +57,9 @@ SUPPORTED_PREDICTION_METRICS = [
     "total_steps",
     "daily_avg_stress",
     "hrv_rmssd",
+    # Biological Aging & Fitness
+    "fitness_age",
+    "fitness_age_gap",
 ]
 
 
