@@ -120,6 +120,24 @@ def run_pipeline(
             logger.info(f"Modo ventana móvil seleccionada: sincronizando últimos {days_back} días a día vencido")
             ingestor.run_sync_window(days_back=days_back, sync_fit=sync_fit)
 
+        # Consolidación automatizada en SQLite
+        logger.info("Actualizando tabla consolidada de datos reales (consolidated_daily_actuals)...")
+        consolidated_rows = db.build_consolidated_actuals()
+        logger.info(f"Consolidación de reales completada: {consolidated_rows} registros procesados.")
+
+        # Consolidación de pronósticos si el módulo de predicciones está disponible
+        try:
+            from src.analytics.predictions_manager import BiometricPredictionsManager
+            pred_mgr = BiometricPredictionsManager(db=db)
+            if Path(pred_mgr.forecast_csv_path).exists():
+                logger.info("Actualizando tabla consolidada de pronósticos biométricos...")
+                import pandas as pd
+                preds_df = pd.read_csv(pred_mgr.forecast_csv_path)
+                forecast_rows = db.upsert_consolidated_forecasts(preds_df)
+                logger.info(f"Consolidación de pronósticos completada: {forecast_rows} registros procesados.")
+        except (ImportError, Exception) as e:
+            logger.debug(f"Consolidación de pronósticos omitida o no disponible: {e}")
+
         logger.info("Pipeline de sincronización finalizado exitosamente.")
 
         # Actualizar dataset limpio DVC y tabla de predicciones bloqueadas

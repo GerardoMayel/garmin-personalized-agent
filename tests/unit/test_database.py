@@ -226,3 +226,104 @@ class TestGarminDatabase:
         assert record["resting_heart_rate"] == 50
         assert record["sleep_score"] == 85
         assert record["hrv_rmssd"] == 48
+
+    def test_build_consolidated_actuals_and_unified_timeline(self, temp_db: GarminDatabase):
+        """Should build consolidated actuals, upsert forecasts, and query unified timeline."""
+        import pandas as pd
+
+        # 1. Insert daily actuals in base tables
+        temp_db.upsert_daily_summary({
+            "calendarDate": "2026-09-14",
+            "totalSteps": 11500,
+            "restingHeartRate": 53,
+            "averageStressLevel": 28,
+            "totalKilocalories": 2300.0,
+            "activeKilocalories": 450.0,
+            "floorsAscended": 10.0,
+        })
+        temp_db.upsert_sleep({
+            "dailySleepDTO": {
+                "calendarDate": "2026-09-14",
+                "sleepScores": {"overall": {"value": 88}},
+                "sleepTimeSeconds": 28000,
+                "deepSleepSeconds": 6500,
+                "remSleepSeconds": 7200,
+                "averageSpO2Value": 97.0,
+            }
+        })
+        temp_db.upsert_hrv({
+            "hrvSummary": {
+                "calendarDate": "2026-09-14",
+                "lastNightAvg": 46,
+                "status": "BALANCED",
+            }
+        })
+        temp_db.upsert_fitness_age({
+            "chronologicalAge": 40.0,
+            "fitnessAge": 34.5,
+            "achievableFitnessAge": 34.0,
+            "components": {"bodyFat": {"value": 16.5}, "rhr": {"value": 53}},
+        }, calendar_date="2026-09-14")
+
+        # 2. Build consolidated actuals
+        rows = temp_db.build_consolidated_actuals()
+        assert rows == 1
+        assert temp_db.count_records()["consolidated_daily_actuals"] == 1
+
+        actuals = temp_db.get_consolidated_actuals("2026-09-01", "2026-09-20")
+        assert len(actuals) == 1
+        act = actuals[0]
+        assert act["calendar_date"] == "2026-09-14"
+        assert act["total_steps"] == 11500
+        assert act["resting_heart_rate"] == 53
+        assert act["sleep_score"] == 88
+        assert act["hrv_rmssd"] == 46
+        assert act["fitness_age"] == 34.5
+        assert act["fitness_age_gap"] == 5.5
+
+        # 3. Upsert forecasts
+        forecast_data = [
+            {
+                "target_date": "2026-09-21",
+                "metric": "resting_heart_rate",
+                "predicted_mean": 52.4,
+                "ci_lower": 50.0,
+                "ci_upper": 55.0,
+                "model_name": "SARIMAX(1,0,1)",
+                "mae": 1.2,
+                "rmse": 1.5,
+                "model_type": "time_series",
+                "generated_at": "2026-09-20T23:59:00",
+            },
+            {
+                "target_date": "2026-09-21",
+                "metric": "total_steps",
+                "predicted_mean": 11000.0,
+                "ci_lower": 9500.0,
+                "ci_upper": 12500.0,
+                "model_name": "SARIMAX(1,1,1)",
+                "mae": 800.0,
+                "rmse": 1000.0,
+                "model_type": "time_series",
+                "generated_at": "2026-09-20T23:59:00",
+            },
+        ]
+        df_forecast = pd.DataFrame(forecast_data)
+        fc_rows = temp_db.upsert_consolidated_forecasts(df_forecast)
+        assert fc_rows == 2
+        assert temp_db.count_records()["consolidated_biometric_forecasts"] == 2
+
+        # 4. Query unified timeline view
+        timeline = temp_db.get_unified_timeline(start_date="2026-09-14", end_date="2026-09-22")
+        assert len(timeline) == 2
+        # Date 2026-09-14 is ACTUAL
+        assert timeline[0]["calendar_date"] == "2026-09-14"
+        assert timeline[0]["record_type"] == "ACTUAL"
+        assert timeline[0]["resting_heart_rate"] == 53
+        assert timeline[0]["total_steps"] == 11500
+
+        # Date 2026-09-21 is FORECAST
+        assert timeline[1]["calendar_date"] == "2026-09-21"
+        assert timeline[1]["record_type"] == "FORECAST"
+        assert timeline[1]["resting_heart_rate"] == 52.4
+        assert timeline[1]["total_steps"] == 11000.0

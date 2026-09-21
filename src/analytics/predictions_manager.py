@@ -111,6 +111,7 @@ class BiometricPredictionsManager:
         self.db_path = self.predictions_dir / "weekly_biometric_forecasts.db"
         self.parquet_path = self.predictions_dir / "weekly_biometric_forecasts.parquet"
         self.csv_path = self.predictions_dir / "weekly_biometric_forecasts.csv"
+        self.forecast_csv_path = str(self.csv_path)
         self._init_sqlite_db()
 
     def _init_sqlite_db(self) -> None:
@@ -438,6 +439,19 @@ class BiometricPredictionsManager:
         combined_df.to_parquet(self.parquet_path, index=False)
         combined_df.to_csv(self.csv_path, index=False)
         logger.info(f"Predictions persisted to SQLite ({self.db_path}), Parquet, and CSV.")
+
+        # Consolidate into unified Garmin database (garmin_history.db)
+        try:
+            from src.common.database import GarminDatabase
+
+            g_db = GarminDatabase()
+            count = g_db.upsert_consolidated_forecasts(combined_df)
+            logger.info(
+                f"Consolidados {count} pronósticos en 'consolidated_biometric_forecasts' de garmin_history.db."
+            )
+        except Exception as e:
+            logger.warning(f"Error sincronizando pronósticos con garmin_history.db: {e}")
+
         return combined_df
 
 

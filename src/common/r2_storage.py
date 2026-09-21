@@ -264,14 +264,13 @@ class R2StorageClient:
                         Delete={"Objects": objects_to_delete},
                     )
                     deleted_count += len(objects_to_delete)
-                    logger.info(
-                        f"Eliminados {len(objects_to_delete)} objetos bajo '{remote_prefix}' en R2."
-                    )
+                    logger.info(f"Eliminados {len(objects_to_delete)} objetos bajo '{remote_prefix}' en R2.")
 
             return deleted_count
         except Exception as e:
             logger.error(f"Error eliminando prefijo '{remote_prefix}' en R2: {e}")
             return deleted_count
+
     def sync_dvc_dataset(
         self,
         dvc_dir: str | Path = "data/dvc",
@@ -473,7 +472,6 @@ class R2StorageClient:
         except Exception as e:
             logger.error(f"Error restaurando processed_chunks desde R2: {e}")
             return stats
-
 
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""
