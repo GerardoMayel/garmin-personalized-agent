@@ -1,63 +1,19 @@
-"""Unit tests for ChromaVectorStore (Local and Remote modes)."""
+"""Unit tests for ChromaVectorStore (Remote HTTP mode against FastAPI / HF Space)."""
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.rag.vector_store import ChromaVectorStore
 
 
-def test_local_chroma_lifecycle() -> None:
-    """Debe inicializar un cliente local, insertar chunks, consultar y retornar estadísticas."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store = ChromaVectorStore(
-            collection_name="test_biometrics",
-            persist_directory=Path(tmpdir),
-        )
-
-        assert store.count() == 0
-
-        # Datos sintéticos
-        ids = ["c1", "c2"]
-        embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
-        documents = ["Documento sobre HRV y rMSSD", "Documento sobre sensor Elevate"]
-        metadatas = [
-            {"source": "variables_fisiologia_humana", "tags": ["hrv", "rmssd"]},
-            {"source": "dispositivos_garmin_sensores", "tags": ["sensor", "ppg"]},
-        ]
-
-        count = store.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
-        )
-
-        assert count == 2
-        assert store.count() == 2
-
-        # Probar stats
-        stats = store.get_stats()
-        assert stats["total_chunks"] == 2
-        assert stats["sources"]["variables_fisiologia_humana"] == 1
-        assert stats["sources"]["dispositivos_garmin_sensores"] == 1
-
-        # Probar query
-        results = store.query(query_embedding=[0.1, 0.2, 0.3], n_results=1)
-        assert len(results) == 1
-        assert results[0]["id"] == "c1"
-        assert "HRV" in results[0]["document"]
-
-        # Probar query con filtro where
-        filtered = store.query(
-            query_embedding=[0.4, 0.5, 0.6],
-            n_results=5,
-            where={"source": "dispositivos_garmin_sensores"},
-        )
-        assert len(filtered) == 1
-        assert filtered[0]["id"] == "c2"
+def test_requires_remote_url() -> None:
+    """Debe fallar con ValueError si no se especifica remote_url ni CHROMA_REMOTE_URL."""
+    with patch.dict("os.environ", {"CHROMA_REMOTE_URL": ""}):
+        with pytest.raises(ValueError, match="CHROMA_REMOTE_URL no está configurado"):
+            ChromaVectorStore(remote_url=None)
 
 
 def test_metadata_normalization() -> None:
@@ -75,31 +31,73 @@ def test_metadata_normalization() -> None:
     assert "none_val" not in clean
 
 
-def test_remote_mode_routing() -> None:
-    """Debe enviar peticiones HTTP cuando remote_url está configurado."""
+def test_remote_upsert_and_query() -> None:
+    """Debe enviar peticiones HTTP POST a /upsert y /query."""
     store = ChromaVectorStore(
-        collection_name="remote_coll",
+        collection_name="test_collection",
         remote_url="https://mock-space.hf.space",
-        auth_token="test_token",
+        auth_token="test_hf_token",
     )
 
-    assert store.is_remote is True
-
     with patch("requests.post") as mock_post:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"upserted_count": 1}
-        mock_post.return_value = mock_resp
+        # 1. Upsert
+        mock_resp_upsert = MagicMock()
+        mock_resp_upsert.status_code = 200
+        mock_resp_upsert.json.return_value = {"upserted_count": 2}
+        mock_post.return_value = mock_resp_upsert
 
-        store.upsert(
-            ids=["x1"],
-            embeddings=[[0.1, 0.2]],
-            documents=["doc"],
-            metadatas=[{"k": "v"}],
+        count = store.upsert(
+            ids=["c1", "c2"],
+            embeddings=[[0.1, 0.2], [0.3, 0.4]],
+            documents=["doc1", "doc2"],
+            metadatas=[{"source": "src1"}, {"source": "src2"}],
         )
 
-        assert mock_post.call_count == 1
-        call_url = mock_post.call_args[0][0]
-        call_headers = mock_post.call_args[1]["headers"]
-        assert call_url == "https://mock-space.hf.space/upsert"
-        assert call_headers["Authorization"] == "Bearer test_token"
+        assert count == 2
+        assert mock_post.call_args[0][0] == "https://mock-space.hf.space/upsert"
+        assert mock_post.call_args[1]["headers"]["Authorization"] == "Bearer test_hf_token"
+
+        # 2. Query
+        mock_resp_query = MagicMock()
+        mock_resp_query.status_code = 200
+        mock_resp_query.json.return_value = {
+            "results": [{"id": "c1", "document": "doc1", "metadata": {}, "distance": 0.1}],
+            "total_found": 1,
+        }
+        mock_post.return_value = mock_resp_query
+
+        results = store.query(query_embedding=[0.1, 0.2], n_results=1, where={"source": "src1"})
+        assert len(results) == 1
+        assert results[0]["id"] == "c1"
+        assert mock_post.call_args[0][0] == "https://mock-space.hf.space/query"
+
+
+def test_remote_stats_and_health() -> None:
+    """Debe consultar los endpoints /stats y /health vía GET."""
+    store = ChromaVectorStore(
+        collection_name="test_collection",
+        remote_url="https://mock-space.hf.space",
+        auth_token="test_hf_token",
+    )
+
+    with patch("requests.get") as mock_get:
+        # Stats
+        mock_resp_stats = MagicMock()
+        mock_resp_stats.status_code = 200
+        mock_resp_stats.json.return_value = {"total_chunks": 702, "sources": {}}
+        mock_get.return_value = mock_resp_stats
+
+        stats = store.get_stats()
+        assert stats["total_chunks"] == 702
+        assert mock_get.call_args[0][0] == "https://mock-space.hf.space/stats"
+
+        # Health
+        mock_resp_health = MagicMock()
+        mock_resp_health.status_code = 200
+        mock_resp_health.json.return_value = {"status": "healthy"}
+        mock_get.return_value = mock_resp_health
+
+        health = store.health()
+        assert health["status"] == "healthy"
+        assert mock_get.call_args[0][0] == "https://mock-space.hf.space/health"
+

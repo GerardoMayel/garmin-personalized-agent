@@ -175,18 +175,13 @@ def run_batch_indexing(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Indexa los 3 datasets Parquet en ChromaDB con Google Gemini Embeddings."
-    )
-    parser.add_argument(
-        "--remote",
-        action="store_true",
-        help="Si se especifica, indexa hacia el endpoint remoto configurado en CHROMA_REMOTE_URL.",
+        description="Indexa los 3 datasets Parquet en ChromaDB remoto con Google Gemini Embeddings."
     )
     parser.add_argument(
         "--url",
         type=str,
         default=None,
-        help="URL directa del endpoint remoto de ChromaDB (sobreescribe CHROMA_REMOTE_URL).",
+        help="URL directa del backend remoto de ChromaDB (sobreescribe CHROMA_REMOTE_URL).",
     )
     parser.add_argument(
         "--batch-size",
@@ -196,13 +191,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    target_url = args.url
-    if args.remote and not target_url:
-        import os
-
-        target_url = os.getenv("CHROMA_REMOTE_URL")
-        if not target_url:
-            logger.error("Se especificó --remote pero CHROMA_REMOTE_URL no está configurada.")
-            exit(1)
+    import os
+    target_url = args.url or os.getenv("CHROMA_REMOTE_URL")
+    if not target_url:
+        logger.error(
+            "CHROMA_REMOTE_URL no está configurada ni se proporcionó --url. "
+            "El indexador requiere un endpoint remoto de ChromaDB."
+        )
+        exit(1)
 
     run_batch_indexing(remote_url=target_url, batch_size=args.batch_size)
+
