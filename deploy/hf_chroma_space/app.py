@@ -8,7 +8,6 @@ Prompt Injection Guard), batch upserts, vector queries, and R2 synchronization.
 from __future__ import annotations
 
 import os
-import re
 import tarfile
 import time
 from contextlib import asynccontextmanager
@@ -27,11 +26,26 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+try:
+    from guardrails import (
+        LLMBudgetTracker,
+        check_domain,
+        normalize_text,
+        scan_prompt_injection,
+    )
+except ImportError:
+    from deploy.hf_chroma_space.guardrails import (
+        LLMBudgetTracker,
+        check_domain,
+        normalize_text,
+        scan_prompt_injection,
+    )
+
 COLLECTION_NAME = "biometric_knowledge_base"
 DEFAULT_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
 DEFAULT_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
 DEFAULT_LLM_MODEL = os.getenv("GEMINI_LLM_MODEL", "gemini-3.5-flash-lite")
-SIMILARITY_THRESHOLD = 0.55
+SIMILARITY_THRESHOLD = 0.52
 
 DOMAIN_REFERENCE_TEXT = (
     "Métricas fisiológicas de Garmin Connect, variabilidad de la frecuencia cardíaca rMSSD, "
@@ -40,18 +54,10 @@ DOMAIN_REFERENCE_TEXT = (
     "saturación de oxígeno SpO2, recuperación muscular, fisiología deportiva y rendimiento cardiovascular."
 )
 
-SUSPICIOUS_PROMPT_PATTERNS = [
-    r"ignora\s+(?:todas\s+)?las\s+instrucciones",
-    r"ignore\s+(?:all\s+)?previous(?:\s+instructions)?",
-    r"act[úu]a\s+como",
-    r"act\s+as\s+an?\s+unrestricted",
-    r"system\s+prompt\s+override",
-    r"jailbreak",
-    r"olvida\s+todo",
-    r"modo\s+desarrollador",
-    r"developer\s+mode",
-    r"dan\s+mode",
-]
+llm_budget = LLMBudgetTracker(
+    max_per_hour=int(os.getenv("MAX_RAG_CALLS_PER_HOUR", "60")),
+    max_per_day=int(os.getenv("MAX_RAG_CALLS_PER_DAY", "100")),
+)
 
 
 def sync_chroma_from_r2_if_needed(force: bool = False) -> bool:
@@ -191,7 +197,9 @@ def call_gemini_llm(system_prompt: str, user_content: str) -> str:
                 candidates = data.get("candidates", [])
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
-                    full_text = "".join(str(p.get("text", "")) for p in parts if "text" in p).strip()
+                    full_text = "".join(
+                        str(p.get("text", "")) for p in parts if "text" in p
+                    ).strip()
                     if full_text:
                         return full_text
             last_error = f"{model_name} HTTP {resp.status_code}: {resp.text[:200]}"
@@ -350,6 +358,7 @@ class AskResponse(BaseModel):
     domain_similarity: float
     guardrail_status: str
     sources: list[SourceCitation]
+    budget_usage: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +375,13 @@ def root() -> dict[str, Any]:
         "collection": COLLECTION_NAME,
         "docs_url": "/docs",
         "status": "online",
-        "guardrails": ["rate_limiting", "prompt_injection_guard", "domain_intent_classifier"],
+        "guardrails": [
+            "rate_limiting",
+            "prompt_injection_guard",
+            "domain_intent_classifier",
+            "llm_budget_protection",
+        ],
+        "llm_budget": llm_budget.get_usage(),
     }
 
 
@@ -381,6 +396,7 @@ def health_check() -> dict[str, Any]:
         "total_chunks": collection.count(),
         "uptime_seconds": uptime_seconds,
         "chroma_version": chromadb.__version__,
+        "llm_budget": llm_budget.get_usage(),
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -406,34 +422,39 @@ def collection_stats(
         "collection": COLLECTION_NAME,
         "total_chunks": total,
         "sources": breakdown,
+        "llm_budget": llm_budget.get_usage(),
     }
 
 
 @app.post("/ask", response_model=AskResponse)
 @limiter.limit("15/minute")
-@limiter.limit("150/day")
+@limiter.limit("60/hour")
+@limiter.limit("100/day")
 def ask_rag(
     request: Request,
     payload: AskRequest,
     _auth: Annotated[bool, Depends(verify_auth)] = True,
 ) -> AskResponse:
-    """Endpoint integral RAG: Guardrails + Embeddings + ChromaDB + Gemini Synthesis."""
+    """Endpoint integral RAG: Guardrails NLP + Embeddings + ChromaDB + Gemini Synthesis + Budget Guard."""
     user_query = payload.query.strip()
+    clean_query = normalize_text(user_query)
 
-    # --- Capa 3: Sanitización y Filtro contra Prompt Injections ---
-    for pattern in SUSPICIOUS_PROMPT_PATTERNS:
-        if re.search(pattern, user_query, re.IGNORECASE):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Petición bloqueada por políticas de seguridad (patrón de inyección detectado).",
-            )
+    # --- Capa 3: Sanitización y Heurísticas NLP contra Prompt Injections ---
+    is_malicious, attack_type = scan_prompt_injection(user_query)
+    if is_malicious:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Petición bloqueada por políticas de seguridad ({attack_type}).",
+        )
 
-    # --- Capa 2: Clasificador de Dominio Semántico ---
-    query_vector = get_query_embedding(user_query)
+    # --- Capa 2: Clasificador de Dominio (Lexicón + Coseno con el Embedding único) ---
+    query_vector = get_query_embedding(clean_query)
     ref_vector = get_domain_reference_embedding()
-    domain_sim = compute_cosine_similarity(np.array(query_vector), ref_vector)
+    is_in_domain, domain_sim, match_method = check_domain(
+        clean_query, query_vector, ref_vector, threshold=SIMILARITY_THRESHOLD
+    )
 
-    if domain_sim < SIMILARITY_THRESHOLD:
+    if not is_in_domain:
         return AskResponse(
             status="out_of_domain",
             query=user_query,
@@ -445,6 +466,7 @@ def ask_rag(
             domain_similarity=round(domain_sim, 4),
             guardrail_status="domain_rejected",
             sources=[],
+            budget_usage=llm_budget.get_usage(),
         )
 
     # --- Flujo RAG: Recuperación de ChromaDB ---
@@ -457,6 +479,15 @@ def ask_rag(
             domain_similarity=round(domain_sim, 4),
             guardrail_status="passed",
             sources=[],
+            budget_usage=llm_budget.get_usage(),
+        )
+
+    # --- Capa 4: Verificación y Consumo de Presupuesto LLM (Máx 60/hora, 100/día) ---
+    budget_ok, budget_msg = llm_budget.check_and_consume()
+    if not budget_ok:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=budget_msg,
         )
 
     query_args: dict[str, Any] = {
@@ -526,6 +557,7 @@ def ask_rag(
         domain_similarity=round(domain_sim, 4),
         guardrail_status="passed",
         sources=sources_list,
+        budget_usage=llm_budget.get_usage(),
     )
 
 

@@ -189,4 +189,26 @@ def test_hf_space_ask_in_domain_success() -> None:
                 assert len(data["sources"]) == 1
                 assert data["sources"][0]["document_id"] == "firstbeat_hrv_guide"
                 assert data["sources"][0]["source"] == "firstbeat"
+                assert data["budget_usage"] is not None
+                assert "hour_used" in data["budget_usage"]
                 mock_llm.assert_called_once()
+
+
+def test_hf_space_ask_llm_budget_exhaustion() -> None:
+    """Debe rechazar con HTTP 429 cuando el presupuesto de llamadas al LLM se agote."""
+    client = TestClient(app)
+    mock_emb = [0.5, 0.5] * 384
+    with (
+        patch("deploy.hf_chroma_space.app.get_query_embedding", return_value=mock_emb),
+        patch("deploy.hf_chroma_space.app.get_domain_reference_embedding", return_value=mock_emb),
+        patch(
+            "deploy.hf_chroma_space.app.llm_budget.check_and_consume",
+            return_value=(False, "Límite horario de llamadas al LLM alcanzado (60 por hora)."),
+        ),
+    ):
+        resp = client.post(
+            "/ask",
+            json={"query": "¿Por qué el rMSSD bajo indica sobreentrenamiento?", "top_k": 3},
+        )
+        assert resp.status_code == 429
+        assert "Límite horario" in resp.json()["detail"]
