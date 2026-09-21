@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from src.common.database import GarminDatabase
@@ -22,25 +22,37 @@ logger = get_logger("SyncPipeline")
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parses CLI arguments for the Garmin sync pipeline."""
     parser = argparse.ArgumentParser(
-        description="Garmin Connect Ingestion Pipeline: sync daily biometrics, activities, and .fit files."
+        description="Garmin Connect Ingestion Pipeline: sync daily biometrics, activities, and .fit files a día vencido."
     )
     parser.add_argument(
         "--days-back",
         type=int,
-        default=2,
-        help="Number of rolling days to synchronize (default: 2 to sync yesterday and today).",
+        default=15,
+        help="Number of rolling days to synchronize a día vencido (default: 15 for self-healing reconciliation).",
     )
     parser.add_argument(
         "--date",
         type=str,
         default=None,
-        help="Specific date to synchronize in YYYY-MM-DD format (overrides --days-back).",
+        help="Specific date to synchronize in YYYY-MM-DD format (must be < today).",
     )
     parser.add_argument(
         "--no-fit",
         action="store_true",
         default=False,
         help="Skip downloading binary .fit activity archives (downloads JSON metadata only).",
+    )
+    parser.add_argument(
+        "--reconcile",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Audit and self-heal missing/corrupted days in the window (default: True).",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Force re-download of all days in the window regardless of status.",
     )
     parser.add_argument(
         "--raw-dir",
@@ -64,9 +76,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
 
 def run_pipeline(
-    days_back: int = 2,
+    days_back: int = 15,
     target_date: str | None = None,
     sync_fit: bool = True,
+    reconcile: bool = True,
+    force: bool = False,
     raw_dir: str = "data/raw",
     db_path: str | None = None,
     r2_sync: bool = False,
@@ -83,12 +97,27 @@ def run_pipeline(
 
         if target_date:
             parsed_date = datetime.strptime(target_date, "%Y-%m-%d").date()
+            if parsed_date >= date.today():
+                logger.warning(
+                    f"Fecha objetivo {target_date} rechazada: regla de 'día vencido' activa. "
+                    f"Solo se permite sincronizar días cerrados (< {date.today()})."
+                )
+                return 1
+
             logger.info(f"Modo fecha específica seleccionada: {parsed_date}")
             res = ingestor.sync_daily_biometrics(parsed_date)
             logger.info(f"Resultados biométricos para {parsed_date}: {res}")
             ingestor.sync_activities(limit=10, download_fit=sync_fit)
+        elif reconcile:
+            logger.info(
+                f"Modo reconciliación autorreparable seleccionado: analizando últimos {days_back} días a día vencido"
+            )
+            reconcile_stats = ingestor.reconcile_and_repair_window(
+                days_back=days_back, sync_fit=sync_fit, force=force
+            )
+            logger.info(f"Reconciliación completada: {reconcile_stats}")
         else:
-            logger.info(f"Modo ventana móvil seleccionada: sincronizando últimos {days_back} días")
+            logger.info(f"Modo ventana móvil seleccionada: sincronizando últimos {days_back} días a día vencido")
             ingestor.run_sync_window(days_back=days_back, sync_fit=sync_fit)
 
         logger.info("Pipeline de sincronización finalizado exitosamente.")
@@ -148,6 +177,8 @@ def main() -> None:
         days_back=args.days_back,
         target_date=args.date,
         sync_fit=sync_fit,
+        reconcile=args.reconcile,
+        force=args.force,
         raw_dir=args.raw_dir,
         db_path=args.db_path,
         r2_sync=args.r2_sync,

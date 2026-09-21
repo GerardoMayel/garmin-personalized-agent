@@ -260,12 +260,34 @@ Descarga en 3 segundos los datos de ayer y tu última actividad para validar cre
 uv run python -m src.ingestion.sample_sync
 ```
 
-### 4. Sincronizar Telemetría Reciente (7 Días)
+### 4. Sincronización a Día Vencido y Reconciliación Autorreparable
+El pipeline de ingestión opera bajo la estricta **regla de día vencido ($T-1$)**: Garmin Connect mantiene campos incompletos o nulos (`averageStressLevel: null`, `totalSteps: null`) durante el día en curso ($T$). Para garantizar la máxima fidelidad fisiológica:
+- **Día Vencido:** Nunca ingiere el día en curso; procesa únicamente jornadas cerradas y consolidadas ($< \text{hoy}$).
+- **Reconciliador de 15 Días:** Audita una ventana móvil de 15 días comprobando integridad de archivos raw y registros en SQLite. Si detecta ficheros ausentes o nulos debidos a ejecuciones previas parciales, los repara automáticamente descargando la telemetría oficial de Garmin.
+- **Purga de Días Incompletos:** Detecta y elimina cualquier partición o fila local o en R2 de fechas $\ge \text{hoy}$.
+
 ```bash
-uv run python -m src.ingestion.garmin_sync
+# Ejecutar reconciliación autorreparable de 15 días y respaldar en Cloudflare R2:
+uv run python -m src.ingestion.sync_pipeline --days-back 15 --reconcile --r2-sync
+
+# Forzar re-sincronización completa de toda la ventana:
+uv run python -m src.ingestion.sync_pipeline --days-back 15 --force --r2-sync
+
+# Sincronizar una fecha específica cerrada (día vencido):
+uv run python -m src.ingestion.sync_pipeline --date 2026-09-20 --r2-sync
 ```
 
-### 5. Ingestión de Literatura y Chunking RAG
+### 5. Almacenamiento en la Nube con Cloudflare R2
+Persistencia y recuperación rápida de particiones raw y base de datos histórica mediante `src.common.r2_storage`:
+```bash
+# Respaldar SQLite y particiones raw hacia Cloudflare R2:
+uv run python -m src.common.r2_storage --backup-db --sync-raw
+
+# Restaurar SQLite y particiones raw completas desde Cloudflare R2:
+uv run python -m src.common.r2_storage --restore-db --restore-raw
+```
+
+### 6. Ingestión de Literatura y Chunking RAG
 Descarga los 30 White Papers científicos de Firstbeat, genera el glosario de métricas y procesa los chunks Parquet:
 ```bash
 # Descargar White Papers de sensores y algoritmos (15 documentos)
@@ -281,7 +303,7 @@ uv run python -m src.ingestion.sync_garmin_metric_descriptions
 uv run python -m src.rag.loader_and_chunker --sync-r2
 ```
 
-### 6. Indexación Vectorial en ChromaDB (Google Gemini 768-dim)
+### 7. Indexación Vectorial en ChromaDB (Google Gemini 768-dim)
 Genera embeddings densos para los 702 fragmentos e indexa en ChromaDB (local o Space remoto en Hugging Face):
 ```bash
 # Indexación en base local embebida (data/chroma_db)
@@ -291,13 +313,13 @@ uv run python -m src.rag.index_to_chroma
 uv run python -m src.rag.index_to_chroma --remote
 ```
 
-### 7. Despliegue del Backend ChromaDB a Hugging Face Space (Docker)
+### 8. Despliegue del Backend ChromaDB a Hugging Face Space (Docker)
 ```bash
 # Despliegue automatizado del contenedor FastAPI a tu Space
 uv run python deploy/hf_chroma_space/deploy_space.py --space tu_usuario_hf/garmin-chroma-backend
 ```
 
-### 8. Ejecución de Tests y Verificación de Código
+### 9. Ejecución de Tests y Verificación de Código
 ```bash
 # Ejecutar suite de 102 tests unitarios
 uv run pytest
