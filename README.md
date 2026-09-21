@@ -126,7 +126,84 @@ Motor relacional en **`data/garmin_personal.db`** ([`src/common/database.py`](fi
 | **`hrv_records`** | `calendar_date` | rMSSD nocturno, media de 7 días, estado (`BALANCED`, `UNBALANCED`), línea base personal. |
 | **`stress_records`** | `calendar_date` | Nivel promedio y máximo de estrés, duraciones en reposo, actividad y niveles bajo/medio/alto. |
 | **`max_metrics`** | `calendar_date` | VO2 Max de carrera/ciclismo, edad de condición física (Fitness Age). |
+| **`fitness_age_records`** | `calendar_date` | Edad cronológica, edad física, brecha biológica, grasa corporal, FC reposo y potenciales. |
 | **`activities`** | `activity_id` | Nombre, tipo, distancia, duración, desnivel, velocidad, FC media/máx, ruta local al `.fit.zip`. |
+| **`consolidated_daily_actuals`** | `calendar_date` | **Tabla Única de Reales**: Consolidación aplanada (48 columnas) de telemetría diaria cerrada. |
+| **`consolidated_biometric_forecasts`** | `(target_date, metric)` | **Tabla Única de Pronósticos**: Predicciones futuras con intervalos de confianza y linaje de modelos. |
+| **`unified_biometrics_timeline`** | *(Vista SQL)* | **Línea Temporal Continua**: Empalme automático de reales pasados (`ACTUAL`) y proyecciones futuras (`FORECAST`). |
+
+### 📊 Modelo de Datos Unificado y Consolidado
+
+El sistema proporciona un modelo relacional unificado para simplificar el análisis longitudinal y la visualización sin necesidad de múltiples JOINs manuales:
+
+#### 1. Tabla Única de Reales: `consolidated_daily_actuals`
+- **Ubicación**: `data/processed/garmin_history.db` (respaldada en Cloudflare R2 en `processed/garmin_history.db`).
+- **Gatillado**: Se actualiza y recalcula automáticamente al concluir la sincronización diaria de telemetría a día vencido (`ingest_raw_directory()` y `run_pipeline()`).
+- **Diccionario de Campos Principal**:
+  - `calendar_date` (*TEXT*, PK): Fecha calendario en formato ISO `YYYY-MM-DD`.
+  - `total_steps` (*INTEGER*): Total de pasos diarios registrados.
+  - `total_distance_meters` (*REAL*): Distancia total recorrida en metros.
+  - `floors_ascended` (*REAL*): Pisos o tramos de escaleras subidos.
+  - `active_kilocalories` / `resting_kilocalories` / `total_kilocalories` (*REAL*): Desglose energético en kcal.
+  - `resting_heart_rate` (*INTEGER*): Frecuencia cardíaca en reposo en latidos por minuto (ppm).
+  - `min_heart_rate` / `max_heart_rate` (*INTEGER*): Frecuencia cardíaca mínima y máxima del día.
+  - `daily_avg_stress` / `daily_max_stress` (*INTEGER*): Puntuación de estrés diario (escala 0-100).
+  - `rest_stress_duration_sec` / `low_stress_duration_sec` / `medium_stress_duration_sec` / `high_stress_duration_sec` (*INTEGER*): Tiempo acumulado en segundos por zona de estrés.
+  - `sleep_score` (*INTEGER*): Puntuación global de calidad de sueño (0-100).
+  - `total_sleep_seconds` (*INTEGER*): Duración total del periodo de sueño en segundos.
+  - `deep_sleep_seconds` / `light_sleep_seconds` / `rem_sleep_seconds` / `awake_sleep_seconds` (*INTEGER*): Desglose de fases de sueño en segundos.
+  - `avg_spo2` / `lowest_spo2` (*REAL*): Saturación de oxígeno en sangre media y mínima nocturna (%).
+  - `avg_respiration` (*REAL*): Tasa respiratoria promedio nocturna (respiraciones por minuto).
+  - `avg_sleep_stress` (*REAL*): Nivel de estrés vegetativo promedio durante el sueño.
+  - `hrv_rmssd` (*REAL*): Variabilidad de la frecuencia cardíaca nocturna en milisegundos (rMSSD).
+  - `hrv_weekly_avg` (*REAL*): Media móvil semanal de HRV (ms).
+  - `hrv_status` (*TEXT*): Clasificación autonómica de Garmin (`BALANCED`, `UNBALANCED`, `LOW`).
+  - `hrv_baseline_low` / `hrv_baseline_balanced_low` / `hrv_baseline_balanced_upper` (*REAL*): Límites de normalidad personal.
+  - `vo2_max_running` / `vo2_max_precise` (*REAL*): Consumo máximo de oxígeno estimado en ml/kg/min.
+  - `fitness_age` (*REAL*): Edad de condición física o biológica calculada por Garmin.
+  - `chronological_age` (*REAL*): Edad cronológica real del usuario en años.
+  - `achievable_fitness_age` (*REAL*): Edad biológica mínima alcanzable estimada.
+  - `fitness_age_gap` (*REAL*): Ventaja biológica (`chronological_age - fitness_age`, positivo = menor edad física).
+  - `body_fat_pct` (*REAL*): Porcentaje de grasa corporal registrado en báscula o manual.
+  - `vigorous_minutes_avg` (*REAL*): Promedio de minutos semanales de intensidad vigorosa.
+  - `activity_count` (*INTEGER*): Número de actividades deportivas estructuradas registradas en el día.
+  - `total_activity_duration_sec` / `total_activity_distance_m` / `total_activity_calories` (*REAL*): Totales acumulados en sesiones deportivas.
+  - `avg_activity_hr` / `max_activity_hr` (*REAL*): Frecuencia cardíaca media y máxima en actividades del día.
+
+#### 2. Tabla Única de Pronósticos: `consolidated_biometric_forecasts`
+- **Ubicación**: `data/processed/garmin_history.db`.
+- **Gatillado**: Se actualiza y persiste de forma determinista cada vez que se ejecutan los pipelines de Machine Learning o el administrador de inferencias (`BiometricPredictionsManager.generate_and_update_forecasts()`).
+- **Diccionario de Campos**:
+  - `forecast_generated_date` (*TEXT*): Fecha ISO en la que se calculó la proyección.
+  - `target_date` (*TEXT*, PK compuesta): Fecha futura proyectada `YYYY-MM-DD`.
+  - `metric` (*TEXT*, PK compuesta): Indicador biométrico proyectado (`resting_heart_rate`, `total_steps`, `daily_avg_stress`, `sleep_score`, `hrv_rmssd`, `fitness_age`, `fitness_age_gap`, etc.).
+  - `predicted_value` (*REAL*): Valor numérico proyectado puntual.
+  - `ci_lower` / `ci_upper` (*REAL*): Intervalos de confianza inferior y superior al 95%.
+  - `model_name` (*TEXT*): Algoritmo de modelado (`SARIMAX`, `Prophet`, `EnsembleBiometricForecaster`).
+  - `is_locked` (*INTEGER*): `1` si la proyección está fijada e inmutable para evaluación post-hoc de error.
+  - `updated_at` (*TEXT*): Timestamp UTC de inserción.
+
+#### 3. Vista Continua Unificada: `unified_biometrics_timeline`
+Proporciona una única interfaz SQL que une el pasado real y el futuro proyectado:
+```sql
+SELECT calendar_date, record_type, resting_heart_rate, hrv_rmssd, daily_avg_stress, sleep_score, fitness_age
+FROM unified_biometrics_timeline
+WHERE calendar_date BETWEEN '2026-09-01' AND '2026-09-28';
+```
+- Para fechas históricas cerradas: devuelve `record_type = 'ACTUAL'` con la telemetría real consolidada.
+- Para fechas futuras: devuelve `record_type = 'FORECAST'` con las proyecciones pivoteadas por métrica.
+
+### Operaciones de Base de Datos
+```bash
+# Construir o refrescar la tabla de reales consolidados:
+uv run python -m src.common.database --build-consolidated
+
+# Cargar/migrar datos históricos existentes desde data/raw/ hacia SQLite:
+uv run python -m src.common.database --backfill
+
+# Consultar el recuento y estado de registros en todas las tablas:
+uv run python -m src.common.database --stats
+```
 
 ---
 

@@ -264,9 +264,7 @@ class R2StorageClient:
                         Delete={"Objects": objects_to_delete},
                     )
                     deleted_count += len(objects_to_delete)
-                    logger.info(
-                        f"Eliminados {len(objects_to_delete)} objetos bajo '{remote_prefix}' en R2."
-                    )
+                    logger.info(f"Eliminados {len(objects_to_delete)} objetos bajo '{remote_prefix}' en R2.")
 
             return deleted_count
         except Exception as e:
@@ -475,7 +473,6 @@ class R2StorageClient:
             logger.error(f"Error restaurando processed_chunks desde R2: {e}")
             return stats
 
-
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""
     parser = argparse.ArgumentParser(description="Cloudflare R2 Storage Manager for Garmin Data.")
@@ -568,7 +565,6 @@ def main() -> None:
         res = client.restore_raw_directory()
         print(f"Resultado de restauración raw desde R2: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
-
     if args.sync_dvc:
         res = client.sync_dvc_dataset()
         print(f"Resultado de sincronización dvc: {res}")
