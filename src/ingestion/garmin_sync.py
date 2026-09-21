@@ -155,6 +155,16 @@ class GarminDataIngestor:
             logger.warning(f"No se pudieron obtener las métricas de VO2 Max: {e}")
             results["max_metrics"] = False
 
+        # 6. Edad de forma física (Fitness Age 2.0)
+        try:
+            fitness_age_data = self.client.get_fitnessage_data(date_str)
+            self._save_json(fitness_age_data, day_dir / "fitness_age.json")
+            self.db.upsert_fitness_age(fitness_age_data, calendar_date=date_str)
+            results["fitness_age"] = True
+        except Exception as e:
+            logger.warning(f"No se pudieron obtener las métricas de edad física: {e}")
+            results["fitness_age"] = False
+
         return results
 
     def is_day_complete_and_valid(self, target_date: date) -> tuple[bool, str]:
@@ -169,20 +179,21 @@ class GarminDataIngestor:
         if not day_dir.exists() or not day_dir.is_dir():
             return False, "directorio raw no existe"
 
-        # 2. Comprobar presencia de los 5 archivos raw esenciales
+        # 2. Comprobar presencia de los 6 archivos raw esenciales
         expected_files = [
             "daily_summary.json",
             "stress.json",
             "sleep.json",
             "hrv.json",
             "max_metrics.json",
+            "fitness_age.json",
         ]
         for fname in expected_files:
             fpath = day_dir / fname
             if not fpath.exists():
                 return False, f"archivo raw '{fname}' ausente"
 
-        # 3. Validar contenido de daily_summary.json y stress.json
+        # 3. Validar contenido de daily_summary.json, stress.json y fitness_age.json
         try:
             with open(day_dir / "daily_summary.json", "r", encoding="utf-8") as f:
                 daily_summary = json.load(f)
@@ -200,6 +211,14 @@ class GarminDataIngestor:
                 return False, "stress.json no contiene niveles de estrés válidos"
         except Exception as e:
             return False, f"error parseando stress.json: {e}"
+
+        try:
+            with open(day_dir / "fitness_age.json", "r", encoding="utf-8") as f:
+                fitness_age_data = json.load(f)
+            if fitness_age_data.get("fitnessAge") is None:
+                return False, "fitness_age.json no contiene fitnessAge válido"
+        except Exception as e:
+            return False, f"error parseando fitness_age.json: {e}"
 
         # 4. Validar persistencia en base de datos SQLite
         row = self.db.get_daily_summary(date_str)
