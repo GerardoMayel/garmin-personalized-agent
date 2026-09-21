@@ -40,16 +40,16 @@ def deploy_to_hf_space(space_repo_id: str, token: str | None = None) -> None:
         print(f"✅ Space '{space_repo_id}' encontrado.")
     except Exception:
         print(
-            f"ℹ️ Space '{space_repo_id}' no encontrado. Creando nuevo Space con SDK Docker (Private)..."
+            f"ℹ️ Space '{space_repo_id}' no encontrado. Creando nuevo Space (Private)..."
         )
         api.create_repo(
             repo_id=space_repo_id,
             repo_type="space",
-            space_sdk="docker",
+            space_sdk="static",
             private=True,
             exist_ok=True,
         )
-        print(f"✅ Space '{space_repo_id}' creado exitosamente.")
+        print(f"✅ Space '{space_repo_id}' inicializado exitosamente.")
 
     # Subir los archivos del Space (excluyendo deploy_space.py y cachés)
     future = api.upload_folder(
