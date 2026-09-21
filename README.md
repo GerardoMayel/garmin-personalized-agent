@@ -11,22 +11,24 @@ Sistema analítico end-to-end y arquitectura de agentes personalizados para la i
 
 ---
 
-## 📌 Estado Actual del Proyecto (Fase 1: Ingestión, Modelado & RAG Chunking)
+## 📌 Estado Actual del Proyecto (Fase 1: Ingestión & Fase 2: RAG Backend en Vivo)
 
 El proyecto cuenta con sus componentes fundamentales activos, probados y desplegados con CI/CD automatizado:
 
 1. **Ingestión de Telemetría Garmin Connect**: Cliente con autenticación MFA, persistencia de tokens de sesión (`~/.garminconnect`) y extracción de resúmenes diarios, sueño, estrés, HRV, VO2Max y actividades FIT.
 2. **Capa Relacional Histórica (SQLite)**: Base de datos estructurada en `data/garmin_personal.db` para análisis longitudinales con 6 esquemas analíticos (`daily_summaries`, `sleep_records`, `hrv_records`, `stress_records`, `max_metrics`, `activities`).
 3. **Machine Learning Clásico & Series de Tiempo**: Modelos predictivos (ARIMA, Prophet, Holt-Winters), descomposición temporal (tendencia, estacionalidad, residuos), motores de detección de anomalías (Z-Score, IQR, Isolation Forest) y análisis de causalidad de Granger.
-4. **Almacenamiento en Cloudflare R2**: Bucket S3-compatible `garmin-personal-data` para resguardo automatizado de snapshots crudos, base SQLite histórica, documentos científicos y datasets particionados Parquet.
-5. **RAG Knowledge Base & Chunking Pipeline (Fase 1)**:
-   - **3 Fuentes Científicas y Técnicas**: Dispositivos y sensores Garmin (15 white papers Firstbeat), Fisiología Humana (15 white papers Firstbeat) y Glosario oficial de métricas Garmin Connect.
-   - **Chunking por Tokens BPE**: Segmentación a 400 tokens con 40% de solapamiento (~160 tokens) mediante `tiktoken` (`cl100k_base`).
-   - **Detección Híbrida de Idioma**: NLP tradicional con `langdetect` y fallback inteligente a Google Gemini 1.5 Flash.
-   - **Conciliación con DocumentLedger**: Seguimiento de firmas SHA-256 (`_ledger.json`), idempotencia y purga automática de chunks huérfanos.
-   - **Formato Columnar Apache Parquet**: Exportación particionada (`dataset_v1/part-00001.parquet`) con esquemas PyArrow estrictos y sincronización a Cloudflare R2.
-6. **Automatización en GitHub Actions**: Flujos programados mensuales para actualización de conocimiento científico y sincronización diaria de telemetría.
-7. **Suite de Pruebas Unitaria**: 60 tests automatizados passing con `pytest`, formateo con `ruff` y tipado estricto con `mypy`.
+4. **Almacenamiento en Cloudflare R2**: Bucket S3-compatible `garmin-personal-data` para resguardo automatizado de snapshots crudos, base SQLite histórica, documentos científicos, datasets particionados Parquet y el tarball vectorial `chroma_db.tar.gz`.
+5. **RAG Knowledge Base & Chunking Pipeline (Fase 1 & Fase 2)**:
+   - **3 Fuentes Científicas y Técnicas**: `variables_fisiologia_humana` (423 chunks), `dispositivos_garmin_sensores` (268 chunks) y `descripciones_metricas_garmin` (11 chunks).
+   - **Embeddings Densos**: Modelo `gemini-embedding-2` de Google (768 dimensiones) con indexación incremental batch.
+   - **ChromaDB en Hugging Face Spaces**: Desplegado en el Space privado `GerardoMayel/garmin-personal-data` sobre hardware gratuito `cpu-basic` ($0.00/mes) con sincronización Direct-to-Storage desde Cloudflare R2.
+   - **Restricción Estricta de Fuentes en `/ask`**: Generación basada exclusivamente en `variables_fisiologia_humana` y `dispositivos_garmin_sensores`, preservando `descripciones_metricas_garmin` para lookup de esquemas.
+   - **Motor de Reranking Híbrido**: Reciprocal Rank Fusion (RRF $k=60$) combinando distancia vectorial de coseno con densidad léxica BM25 y coincidencia de tags sin llamadas extra a APIs.
+   - **Guardrails Multicapa de Producción**: Rate limiting (`slowapi`), escáner anti-ofuscación de inyecciones de prompt, clasificador semántico de dominio y limitador de presupuesto en memoria (máx. 60 llamadas/hora y 100/día).
+   - **Control Estricto de Idioma**: Español base (respuestas siempre en español), inglés permitido (respuestas en inglés) y rechazo inmediato de cualquier otro idioma sin coste LLM.
+6. **Automatización en GitHub Actions**: Flujos programados para sincronización diaria de telemetría, actualización de literatura científica y keep-alive de Hugging Face Spaces.
+7. **Suite de Pruebas Unitaria**: **102 tests automatizados pasando** con `pytest`, formateo con `ruff` y tipado estricto al 100% con `mypy`.
 
 ---
 
@@ -163,6 +165,7 @@ garmin-personalized-agent/
 │       ├── README.md
 │       ├── app.py
 │       ├── deploy_space.py
+│       ├── guardrails.py
 │       └── requirements.txt
 ├── src/
 │   ├── analytics/
@@ -183,11 +186,14 @@ garmin-personalized-agent/
 │   │   ├── sync_human_physiology_papers.py
 │   │   └── sync_garmin_metric_descriptions.py
 │   └── rag/
+│       ├── README.md
 │       ├── embeddings.py
+│       ├── guardrails.py
 │       ├── index_to_chroma.py
 │       ├── language_detector.py
 │       ├── ledger.py
 │       ├── loader_and_chunker.py
+│       ├── reranker.py
 │       ├── schemas.py
 │       └── vector_store.py
 ├── tests/
@@ -204,12 +210,12 @@ garmin-personalized-agent/
 | :--- | :--- |
 | **`.github/workflows/`** | Automatizaciones CI/CD: verificación (`ci.yml`), sincronización diaria (`data_sync_cron.yml`), pipeline mensual RAG (`sync_science_papers.yml`) y keep-alive de HF Space (`ping_hf_space.yml`). |
 | **`data/`** | Capa de persistencia: base SQLite relacional (`garmin_personal.db`), snapshots JSON (`raw/`) y base de conocimiento científica (`knowledge_base/`). |
-| **`deploy/hf_chroma_space/`** | Backend FastAPI containerizado para Hugging Face Spaces (Docker SDK, Private) con colección unificada `biometric_knowledge_base`. |
+| **`deploy/hf_chroma_space/`** | Backend FastAPI containerizado para Hugging Face Spaces (Docker SDK, Private) con colección unificada `biometric_knowledge_base`, guardrails multicapa y presupuesto LLM. |
 | **`src/analytics/`** | Machine Learning y series de tiempo: descomposición temporal, modelos ARIMA/Prophet/Holt-Winters, detección de anomalías (Isolation Forest) y causalidad de Granger. |
 | **`src/common/`** | Infraestructura base: gestor SQLite (`database.py`), cliente Cloudflare R2 (`r2_storage.py`) y logging con Loguru (`logger.py`). |
 | **`src/ingestion/`** | Clientes de ingestión: API de Garmin Connect y descargadores de literatura Firstbeat y glosario de métricas. |
-| **`src/rag/`** | Pipeline de RAG: chunking BPE (400 tokens / 40% overlap), embeddings Google Gemini (768 dims), cliente ChromaDB (Local/Remoto) e indexación batch. |
-| **`tests/unit/`** | Suite completa de 69 pruebas unitarias automatizadas con `pytest`. |
+| **`src/rag/`** | Pipeline de RAG: chunking BPE, embeddings Google Gemini (768 dims), cliente ChromaDB (Local/Remoto), guardrails NLP, filtro estricto de fuentes y motor de reranking híbrido RRF. |
+| **`tests/unit/`** | Suite completa de 102 pruebas unitarias automatizadas con `pytest`. |
 
 
 
