@@ -18,7 +18,7 @@ from src.common.logger import get_logger
 load_dotenv()
 logger = get_logger("GeminiEmbeddings")
 
-DEFAULT_MODEL = "gemini-embedding-001"
+DEFAULT_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
 DEFAULT_DIMENSIONS = 768
 DEFAULT_BATCH_SIZE = 15
 MAX_RETRIES = 6
@@ -71,6 +71,12 @@ class GeminiEmbeddingEngine:
                         wait_time = max(wait_time, 25.0)
                         try:
                             err_data = response.json().get("error", {})
+                            msg = err_data.get("message", "")
+                            if "RequestsPerDay" in msg or "PerDayPerProjectPerModel" in str(err_data):
+                                logger.error(
+                                    f"Límite diario alcanzado para el modelo '{self.model_name}'. "
+                                    "Considera cambiar GEMINI_EMBEDDING_MODEL a otro modelo compatible."
+                                )
                             for detail in err_data.get("details", []):
                                 if str(detail.get("@type", "")).endswith("RetryInfo"):
                                     delay_str = str(detail.get("retryDelay", ""))
