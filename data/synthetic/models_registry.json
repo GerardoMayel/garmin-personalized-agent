@@ -1,0 +1,76 @@
+{
+  "updated_at": "2026-09-21T18:02:45.249205+00:00",
+  "total_active_models": 10,
+  "models": [
+    {
+      "model_id": "gemma-4-26b-a4b-it",
+      "status": "active",
+      "probe_latency_ms": 2511,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:00:36.872038+00:00"
+    },
+    {
+      "model_id": "gemma-4-31b-it",
+      "status": "active",
+      "probe_latency_ms": 26288,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:01:03.160690+00:00"
+    },
+    {
+      "model_id": "gemini-flash-latest",
+      "status": "active",
+      "probe_latency_ms": 8461,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:01:11.621842+00:00"
+    },
+    {
+      "model_id": "gemini-flash-lite-latest",
+      "status": "active",
+      "probe_latency_ms": 10717,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:01:22.339238+00:00"
+    },
+    {
+      "model_id": "gemini-3-flash-preview",
+      "status": "active",
+      "probe_latency_ms": 1186,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:01:23.874621+00:00"
+    },
+    {
+      "model_id": "gemini-3.1-flash-lite-preview",
+      "status": "active",
+      "probe_latency_ms": 60907,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:02:24.906292+00:00"
+    },
+    {
+      "model_id": "gemini-3.1-flash-lite",
+      "status": "active",
+      "probe_latency_ms": 2351,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:02:27.257748+00:00"
+    },
+    {
+      "model_id": "gemini-3.5-flash-lite",
+      "status": "active",
+      "probe_latency_ms": 2375,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:02:34.038592+00:00"
+    },
+    {
+      "model_id": "gemini-3.6-flash",
+      "status": "active",
+      "probe_latency_ms": 3045,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:02:37.457493+00:00"
+    },
+    {
+      "model_id": "gemini-3.8-flash",
+      "status": "active",
+      "probe_latency_ms": 3492,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:02:41.492981+00:00"
+    }
+  ]
+}

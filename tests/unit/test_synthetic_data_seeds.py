@@ -57,3 +57,36 @@ def test_seed_few_shots_includes_peak_performance_scenarios():
     assert has_lactate_or_tempo, "Missing lactate threshold / tempo run scenario"
     assert has_hiit_or_functional, "Missing high-intensity HIIT / functional circuit scenario"
 
+
+def test_models_registry_structure():
+    """Verify models_registry.json schema, active models, and probe latencies."""
+    import json
+    registry_path = Path("data/synthetic/models_registry.json")
+    assert registry_path.exists(), "models_registry.json must exist after probe"
+
+    with open(registry_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    assert "total_active_models" in data
+    assert data["total_active_models"] >= 5
+    assert len(data["models"]) == data["total_active_models"]
+
+    for m in data["models"]:
+        assert "model_id" in m
+        assert m["status"] == "active"
+        assert "probe_latency_ms" in m
+        assert m["probe_latency_ms"] > 0
+
+
+def test_upload_dataset_to_hub_dry_run():
+    """Verify Hugging Face Hub uploader generates valid Dataset Card in dry run."""
+    from src.training.upload_to_huggingface import upload_dataset_to_hub
+
+    url = upload_dataset_to_hub(
+        dataset_path=SEEDS_PATH,
+        repo_id="GerardoMayel/test-garmin-coach-sft",
+        dry_run=True,
+    )
+    assert url == "https://huggingface.co/datasets/GerardoMayel/test-garmin-coach-sft"
+
+
