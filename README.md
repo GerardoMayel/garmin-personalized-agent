@@ -215,6 +215,7 @@ Consulta y completa las variables requeridas en `.env` (guíate con la plantilla
 - **Base de datos SQLite**: `GARMIN_DB_PATH` (opcional, default: `data/garmin_personal.db`)
 - **Logging**: `LOG_LEVEL` (default: `INFO`)
 - **RAG NLP**: `GEMINI_API_KEY` (opcional, fallback para detección de idioma)
+- **Hugging Face**: `HUGGINGFACE_TOKEN` / `HF_TOKEN` (opcional, para modelos, embeddings y rerankers)
 - **Cloudflare R2**: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ENDPOINT_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 
 
