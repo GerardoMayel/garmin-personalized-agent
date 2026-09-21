@@ -11,6 +11,11 @@ on:
         type: boolean
         required: false
         default: false
+      skip_indexing:
+        description: 'Skip vector indexing to ChromaDB'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -109,6 +114,15 @@ jobs:
           uv run python -m src.common.r2_storage --sync-kb
           uv run python -m src.common.r2_storage --sync-chunks
 
+      - name: "Componente Indexer: Vectorizar e Indexar Chunks a ChromaDB Remoto (Hugging Face Spaces)"
+        if: ${{ github.event.inputs.skip_indexing != 'true' }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          CHROMA_REMOTE_URL: ${{ secrets.CHROMA_REMOTE_URL }}
+        run: |
+          uv run python -m src.rag.index_to_chroma --url "${{ secrets.CHROMA_REMOTE_URL }}"
+
       - name: Upload Sync Artifacts (Logs, Ledger & Reports)
         if: always()
         uses: actions/upload-artifact@v4
@@ -121,4 +135,5 @@ jobs:
 
       - name: Report Pipeline Status
         run: |
-          echo "✅ Pipeline completado: 3 Fuentes procesadas y sincronizadas en Cloudflare R2 (garmin-personal-data/knowledge_base/)."
+          echo "✅ Pipeline completado: 3 Fuentes procesadas, sincronizadas en Cloudflare R2 y vectorizadas en ChromaDB (Hugging Face Spaces)."
+

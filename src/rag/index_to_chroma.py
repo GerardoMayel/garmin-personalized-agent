@@ -102,7 +102,7 @@ def load_chunks_from_parquets() -> list[dict[str, Any]]:
 
 def run_batch_indexing(
     remote_url: str | None = None,
-    batch_size: int = 50,
+    batch_size: int = 25,
 ) -> dict[str, Any]:
     """Ejecuta la indexación por lotes de los chunks Parquet hacia ChromaDB."""
     logger.info("=== Iniciando Pipeline de Indexación Batch en ChromaDB ===")
@@ -186,8 +186,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=50,
-        help="Tamaño de lote para la generación de embeddings en Gemini (default: 50).",
+        default=25,
+        help="Tamaño de lote para la generación de embeddings en Gemini (default: 25).",
     )
     args = parser.parse_args()
 

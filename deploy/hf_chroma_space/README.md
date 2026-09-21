@@ -1,5 +1,5 @@
 ---
-title: Garmin Chroma Backend
+title: Garmin Personal Data
 emoji: 🏃
 colorFrom: blue
 colorTo: indigo

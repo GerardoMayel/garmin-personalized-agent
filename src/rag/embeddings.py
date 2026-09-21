@@ -20,8 +20,8 @@ logger = get_logger("GeminiEmbeddings")
 
 DEFAULT_MODEL = "gemini-embedding-001"
 DEFAULT_DIMENSIONS = 768
-DEFAULT_BATCH_SIZE = 50
-MAX_RETRIES = 3
+DEFAULT_BATCH_SIZE = 25
+MAX_RETRIES = 5
 INITIAL_BACKOFF = 2.0
 
 
@@ -47,7 +47,7 @@ class GeminiEmbeddingEngine:
         self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}"
 
     def _post_with_retry(self, endpoint_url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Ejecuta una petición POST HTTP con reintentos y retroceso exponencial."""
+        """Ejecuta una petición POST HTTP con reintentos y retroceso exponencial adaptativo."""
         backoff = INITIAL_BACKOFF
         last_error = ""
 
@@ -56,7 +56,7 @@ class GeminiEmbeddingEngine:
                 response = requests.post(
                     endpoint_url,
                     json=payload,
-                    timeout=45,
+                    timeout=60,
                     headers={"Content-Type": "application/json"},
                 )
                 if response.status_code == 200:
@@ -66,11 +66,24 @@ class GeminiEmbeddingEngine:
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
                 # Rate limit (429) o error del servidor (5xx)
                 if response.status_code in (429, 500, 502, 503, 504):
+                    wait_time = backoff
+                    if response.status_code == 429:
+                        wait_time = max(wait_time, 25.0)
+                        try:
+                            err_data = response.json().get("error", {})
+                            for detail in err_data.get("details", []):
+                                if str(detail.get("@type", "")).endswith("RetryInfo"):
+                                    delay_str = str(detail.get("retryDelay", ""))
+                                    if delay_str.endswith("s"):
+                                        wait_time = max(wait_time, float(delay_str[:-1]) + 2.0)
+                        except Exception:
+                            pass
+
                     logger.warning(
                         f"Fallo temporal en Gemini Embeddings (intento {attempt}/{MAX_RETRIES}): "
-                        f"{last_error}. Reintentando en {backoff:.1f}s..."
+                        f"{last_error}. Esperando {wait_time:.1f}s antes de reintentar..."
                     )
-                    time.sleep(backoff)
+                    time.sleep(wait_time)
                     backoff *= 2.0
                     continue
 
@@ -168,6 +181,10 @@ class GeminiEmbeddingEngine:
                 f"Lote {i // effective_batch_size + 1}/{total_batches} procesado "
                 f"({len(all_embeddings)}/{len(texts)} acumulados)."
             )
+
+            # Pequeña pausa de regulación entre lotes para respetar el límite RPM gratuito
+            if i + effective_batch_size < len(texts):
+                time.sleep(1.0)
 
         logger.info(f"Embeddings generados exitosamente para {len(all_embeddings)} documentos.")
         return all_embeddings

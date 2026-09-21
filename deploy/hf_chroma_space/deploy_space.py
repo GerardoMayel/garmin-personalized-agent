@@ -57,6 +57,7 @@ def deploy_to_hf_space(space_repo_id: str, token: str | None = None) -> None:
         repo_id=space_repo_id,
         repo_type="space",
         ignore_patterns=["deploy_space.py", "__pycache__/*", "*.pyc", ".DS_Store"],
+        delete_patterns=["index.html", "style.css"],
         commit_message="Deploy Garmin ChromaDB FastAPI Backend",
     )
     print(f"🎉 Despliegue completado con éxito: {future}")
