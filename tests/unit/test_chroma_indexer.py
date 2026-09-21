@@ -147,7 +147,9 @@ def test_indexer_detects_modified_chunk_hash() -> None:
             mock_engine.return_value = mock_engine_instance
 
             # 1. Indexar versión 1
-            with patch("src.rag.index_to_chroma.load_chunks_from_parquets", return_value=[chunk_v1]):
+            with patch(
+                "src.rag.index_to_chroma.load_chunks_from_parquets", return_value=[chunk_v1]
+            ):
                 res1 = run_direct_to_storage_indexing(r2_sync=False)
                 assert res1["newly_indexed"] == 1
 
@@ -159,7 +161,9 @@ def test_indexer_detects_modified_chunk_hash() -> None:
             mock_engine_instance.embed_documents.reset_mock()
             mock_engine_instance.embed_documents.return_value = [[0.9] * 768]
 
-            with patch("src.rag.index_to_chroma.load_chunks_from_parquets", return_value=[chunk_v2]):
+            with patch(
+                "src.rag.index_to_chroma.load_chunks_from_parquets", return_value=[chunk_v2]
+            ):
                 res2 = run_direct_to_storage_indexing(r2_sync=False)
                 # Debe detectar el cambio de hash y re-indexar
                 assert res2["newly_indexed"] == 1

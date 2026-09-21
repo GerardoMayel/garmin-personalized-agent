@@ -134,6 +134,43 @@ class ChromaVectorStore:
         result: dict[str, Any] = resp.json()
         return result
 
+    def delete(self, ids: list[str]) -> int:
+        """Elimina fragmentos específicos por ID en el backend remoto."""
+        if not ids:
+            return 0
+        url = f"{self.remote_url}/delete"
+        payload = {"ids": ids}
+        resp = requests.post(url, json=payload, headers=self._get_headers(), timeout=30)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Error en delete remoto ({resp.status_code}): {resp.text[:300]}")
+        result = resp.json()
+        return int(result.get("deleted_count", len(ids)))
+
+    def ask(
+        self,
+        query: str,
+        top_k: int = 3,
+        where: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Envía una pregunta al RAG backend remoto para validación con guardrails y síntesis con Gemini."""
+        url = f"{self.remote_url}/ask"
+        payload: dict[str, Any] = {
+            "query": query,
+            "top_k": top_k,
+        }
+        if where:
+            payload["where"] = where
+
+        resp = requests.post(url, json=payload, headers=self._get_headers(), timeout=60)
+        if resp.status_code == 400:
+            raise ValueError(f"Petición rechazada por guardrail de seguridad: {resp.text[:300]}")
+        if resp.status_code == 429:
+            raise RuntimeError(f"Límite de peticiones excedido (Rate Limit): {resp.text[:300]}")
+        if resp.status_code != 200:
+            raise RuntimeError(f"Error en ask remoto ({resp.status_code}): {resp.text[:300]}")
+        result: dict[str, Any] = resp.json()
+        return result
+
     def refresh_from_r2(self) -> dict[str, Any]:
         """Solicita al backend remoto que recargue/descomprima la base vectorial desde Cloudflare R2."""
         url = f"{self.remote_url}/refresh-from-r2"

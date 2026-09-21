@@ -1,12 +1,14 @@
-"""ChromaDB Vector Backend API for Hugging Face Spaces.
+"""Garmin Biometric RAG Backend for Hugging Face Spaces.
 
 Exposes a unified ChromaDB collection ('biometric_knowledge_base') over FastAPI
-with endpoints for health checks, batch upserts, vector queries, and collection statistics.
+with full RAG generation, multi-layer guardrails (Rate Limiting, Semantic Domain Filter,
+Prompt Injection Guard), batch upserts, vector queries, and R2 synchronization.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import tarfile
 import time
 from contextlib import asynccontextmanager
@@ -15,13 +17,41 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import chromadb
-from fastapi import Depends, FastAPI, HTTPException, Security, status
+import numpy as np
+import requests
+from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 COLLECTION_NAME = "biometric_knowledge_base"
 DEFAULT_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
+DEFAULT_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
+DEFAULT_LLM_MODEL = os.getenv("GEMINI_LLM_MODEL", "gemini-3.5-flash-lite")
+SIMILARITY_THRESHOLD = 0.55
+
+DOMAIN_REFERENCE_TEXT = (
+    "Métricas fisiológicas de Garmin Connect, variabilidad de la frecuencia cardíaca rMSSD, "
+    "estrés, descanso, sueño profundo y REM, VO2 max, carga y estado de entrenamiento, "
+    "Firstbeat Analytics, pulsaciones, sensores ópticos Elevate PPG, acelerometría, "
+    "saturación de oxígeno SpO2, recuperación muscular, fisiología deportiva y rendimiento cardiovascular."
+)
+
+SUSPICIOUS_PROMPT_PATTERNS = [
+    r"ignora\s+(?:todas\s+)?las\s+instrucciones",
+    r"ignore\s+(?:all\s+)?previous(?:\s+instructions)?",
+    r"act[úu]a\s+como",
+    r"act\s+as\s+an?\s+unrestricted",
+    r"system\s+prompt\s+override",
+    r"jailbreak",
+    r"olvida\s+todo",
+    r"modo\s+desarrollador",
+    r"developer\s+mode",
+    r"dan\s+mode",
+]
 
 
 def sync_chroma_from_r2_if_needed(force: bool = False) -> bool:
@@ -63,8 +93,12 @@ def sync_chroma_from_r2_if_needed(force: bool = False) -> bool:
 
         target_parent = persist_dir.parent
         target_parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(tar_path, "r:gz") as tar:
-            tar.extractall(path=target_parent)
+        try:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(path=target_parent, filter="data")
+        except TypeError:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(path=target_parent)
 
         if tar_path.exists():
             tar_path.unlink()
@@ -76,19 +110,126 @@ def sync_chroma_from_r2_if_needed(force: bool = False) -> bool:
         return False
 
 
+_domain_reference_embedding: np.ndarray | None = None
+
+
+def get_gemini_api_key() -> str:
+    key = os.getenv("GEMINI_API_KEY")
+    if not key or key == "your_gemini_api_key_here":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GEMINI_API_KEY no está configurada en las variables de entorno del servidor.",
+        )
+    return key
+
+
+def get_query_embedding(text: str) -> list[float]:
+    """Genera vector denso de 768 dimensiones con Gemini para búsqueda semántica."""
+    api_key = get_gemini_api_key()
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{DEFAULT_EMBEDDING_MODEL}:embedContent?key={api_key}"
+    )
+    payload = {
+        "model": f"models/{DEFAULT_EMBEDDING_MODEL}",
+        "content": {"parts": [{"text": text.strip()}]},
+        "taskType": "RETRIEVAL_QUERY",
+        "outputDimensionality": 768,
+    }
+    resp = requests.post(
+        url, json=payload, headers={"Content-Type": "application/json"}, timeout=30
+    )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error al generar embedding de consulta ({resp.status_code}): {resp.text[:200]}",
+        )
+    return resp.json()["embedding"]["values"]
+
+
+def get_domain_reference_embedding() -> np.ndarray:
+    """Obtiene o precarga el vector centroid de referencia del dominio Garmin."""
+    global _domain_reference_embedding
+    if _domain_reference_embedding is None:
+        emb = get_query_embedding(DOMAIN_REFERENCE_TEXT)
+        _domain_reference_embedding = np.array(emb, dtype=np.float32)
+    return _domain_reference_embedding
+
+
+def compute_cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
+    dot = np.dot(v1, v2)
+    norm = np.linalg.norm(v1) * np.linalg.norm(v2)
+    return float(dot / norm) if norm > 0 else 0.0
+
+
+def call_gemini_llm(system_prompt: str, user_content: str) -> str:
+    """Llama al LLM de Gemini con prompt de sistema y contexto RAG."""
+    api_key = get_gemini_api_key()
+    models_to_try = [DEFAULT_LLM_MODEL, "gemini-3.1-flash-lite", "gemini-3.6-flash"]
+
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_content}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1500,
+        },
+    }
+
+    last_error = ""
+    for model_name in models_to_try:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model_name}:generateContent?key={api_key}"
+        )
+        try:
+            resp = requests.post(
+                url, json=payload, headers={"Content-Type": "application/json"}, timeout=45
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    full_text = "".join(str(p.get("text", "")) for p in parts if "text" in p).strip()
+                    if full_text:
+                        return full_text
+            last_error = f"{model_name} HTTP {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            last_error = str(e)
+
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Error en generación con Gemini LLM: {last_error}",
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Ciclo de vida de la aplicación: inicializa datos desde R2 al arrancar."""
     sync_chroma_from_r2_if_needed()
+    try:
+        get_chroma_collection()
+    except Exception as e:
+        print(f"Aviso al precargar colección ChromaDB: {e}")
     yield
 
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
-    title="Garmin Biometric ChromaDB Vector Backend",
-    description="Vector database service hosting biometric knowledge base chunks for RAG inference.",
-    version="1.0.0",
+    title="Garmin Biometric RAG Backend",
+    description=(
+        "Full RAG Backend hosting ChromaDB vector storage, multi-layer guardrails "
+        "(Rate Limiting, Semantic Domain Filter, Prompt Injection Guard), and Gemini synthesis "
+        "for Garmin physiological and biomechanical telemetry."
+    ),
+    version="1.1.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -99,7 +240,6 @@ app.add_middleware(
 )
 
 security = HTTPBearer(auto_error=False)
-
 
 _client: chromadb.PersistentClient | None = None
 _collection: chromadb.Collection | None = None
@@ -180,6 +320,38 @@ class DeleteRequest(BaseModel):
     ids: list[str] = Field(..., description="Lista de IDs a eliminar.")
 
 
+class AskRequest(BaseModel):
+    query: str = Field(
+        ...,
+        min_length=5,
+        max_length=400,
+        description="Pregunta del usuario sobre métricas Garmin o fisiología deportiva.",
+    )
+    top_k: int = Field(3, ge=1, le=10, description="Número de fragmentos relevantes a recuperar.")
+    where: dict[str, Any] | None = Field(
+        None,
+        description="Filtro opcional de metadatos (ej. {'source': 'variables_fisiologia_humana'}).",
+    )
+
+
+class SourceCitation(BaseModel):
+    id: str
+    document_id: str
+    source: str
+    distance: float
+    excerpt: str
+    metadata: dict[str, Any]
+
+
+class AskResponse(BaseModel):
+    status: str
+    query: str
+    answer: str
+    domain_similarity: float
+    guardrail_status: str
+    sources: list[SourceCitation]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -190,10 +362,11 @@ START_TIME = time.time()
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
-        "service": "Garmin Biometric ChromaDB Vector Backend",
+        "service": "Garmin Biometric RAG Backend",
         "collection": COLLECTION_NAME,
         "docs_url": "/docs",
         "status": "online",
+        "guardrails": ["rate_limiting", "prompt_injection_guard", "domain_intent_classifier"],
     }
 
 
@@ -220,7 +393,6 @@ def collection_stats(
     collection = get_chroma_collection()
     total = collection.count()
 
-    # Obtener desglose por source si hay documentos
     breakdown: dict[str, int] = {}
     if total > 0:
         sample = collection.get(include=["metadatas"])
@@ -235,6 +407,126 @@ def collection_stats(
         "total_chunks": total,
         "sources": breakdown,
     }
+
+
+@app.post("/ask", response_model=AskResponse)
+@limiter.limit("15/minute")
+@limiter.limit("150/day")
+def ask_rag(
+    request: Request,
+    payload: AskRequest,
+    _auth: Annotated[bool, Depends(verify_auth)] = True,
+) -> AskResponse:
+    """Endpoint integral RAG: Guardrails + Embeddings + ChromaDB + Gemini Synthesis."""
+    user_query = payload.query.strip()
+
+    # --- Capa 3: Sanitización y Filtro contra Prompt Injections ---
+    for pattern in SUSPICIOUS_PROMPT_PATTERNS:
+        if re.search(pattern, user_query, re.IGNORECASE):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Petición bloqueada por políticas de seguridad (patrón de inyección detectado).",
+            )
+
+    # --- Capa 2: Clasificador de Dominio Semántico ---
+    query_vector = get_query_embedding(user_query)
+    ref_vector = get_domain_reference_embedding()
+    domain_sim = compute_cosine_similarity(np.array(query_vector), ref_vector)
+
+    if domain_sim < SIMILARITY_THRESHOLD:
+        return AskResponse(
+            status="out_of_domain",
+            query=user_query,
+            answer=(
+                "Solo tengo autorización para responder preguntas relacionadas con métricas "
+                "fisiológicas, Garmin Connect, Firstbeat Analytics y rendimiento deportivo "
+                "(sueño, estrés, VFC/rMSSD, carga de entrenamiento y recuperación)."
+            ),
+            domain_similarity=round(domain_sim, 4),
+            guardrail_status="domain_rejected",
+            sources=[],
+        )
+
+    # --- Flujo RAG: Recuperación de ChromaDB ---
+    collection = get_chroma_collection()
+    if collection.count() == 0:
+        return AskResponse(
+            status="empty_knowledge_base",
+            query=user_query,
+            answer="La base de conocimiento biomédica no contiene documentos indexados actualmente.",
+            domain_similarity=round(domain_sim, 4),
+            guardrail_status="passed",
+            sources=[],
+        )
+
+    query_args: dict[str, Any] = {
+        "query_embeddings": [query_vector],
+        "n_results": min(payload.top_k, collection.count()),
+        "include": ["documents", "metadatas", "distances"],
+    }
+    if payload.where:
+        query_args["where"] = payload.where
+
+    query_res = collection.query(**query_args)
+    retrieved_ids = query_res.get("ids", [[]])[0]
+    retrieved_docs = query_res.get("documents", [[]])[0]
+    retrieved_metas = query_res.get("metadatas", [[]])[0]
+    retrieved_dists = query_res.get("distances", [[]])[0]
+
+    sources_list: list[SourceCitation] = []
+    context_blocks: list[str] = []
+
+    for i in range(len(retrieved_ids)):
+        cid = retrieved_ids[i]
+        doc_txt = retrieved_docs[i] if retrieved_docs else ""
+        meta = retrieved_metas[i] if retrieved_metas else {}
+        dist = float(retrieved_dists[i]) if retrieved_dists else 0.0
+
+        sources_list.append(
+            SourceCitation(
+                id=cid,
+                document_id=str(meta.get("document_id", "unknown")),
+                source=str(meta.get("source", "unknown")),
+                distance=round(dist, 4),
+                excerpt=doc_txt[:250] + "..." if len(doc_txt) > 250 else doc_txt,
+                metadata=meta,
+            )
+        )
+        context_blocks.append(
+            f"[Documento {i + 1}: {meta.get('document_id')} | Fuente: {meta.get('source')} | Distancia Coseno: {dist:.4f}]\n{doc_txt}"
+        )
+
+    context_str = "\n\n---\n\n".join(context_blocks)
+
+    system_prompt = (
+        "Eres el Asistente Experto en Fisiología Deportiva y Telemetría de Garmin del usuario.\n"
+        "Tu misión es responder rigurosa y pedagógicamente a la consulta basándote en la evidencia "
+        "biomédica provista en los fragmentos de contexto (Firstbeat Analytics, whitepapers de sensores Garmin, "
+        "fisiología del estrés y recuperación).\n\n"
+        "Directrices:\n"
+        "1. Proporciona explicaciones fisiológicas claras, precisas y accionables para el deportista.\n"
+        "2. Cita de forma natural los whitepapers o fuentes relevantes presentes en el contexto.\n"
+        "3. Si la respuesta no puede derivarse de la evidencia provista, indícalo con transparencia sin inventar datos.\n"
+        "4. Mantén un tono técnico, motivador y profesional."
+    )
+
+    user_prompt = (
+        f"CONTEXTO BIOMÉDICO RECUPERADO:\n{context_str}\n\n"
+        f"PREGUNTA DEL USUARIO:\n{user_query}\n\n"
+        "Responde de forma completa, estructurada y basada en el contexto anterior."
+    )
+
+    # --- Llamada de Generación LLM ---
+    answer = call_gemini_llm(system_prompt=system_prompt, user_content=user_prompt)
+
+    return AskResponse(
+        status="success",
+        query=user_query,
+        answer=answer,
+        domain_similarity=round(domain_sim, 4),
+        guardrail_status="passed",
+        sources=sources_list,
+    )
 
 
 @app.post("/upsert")
@@ -256,7 +548,6 @@ def upsert_chunks(
             detail="The lengths of ids, embeddings, and documents must match.",
         )
 
-    # Normalizar metadatos para tipos válidos en ChromaDB (str, int, float, bool)
     normalized_metadatas: list[dict[str, Any]] = []
     for meta in payload.metadatas:
         clean_meta: dict[str, Any] = {}

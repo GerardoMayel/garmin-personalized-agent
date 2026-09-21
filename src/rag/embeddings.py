@@ -72,7 +72,9 @@ class GeminiEmbeddingEngine:
                         try:
                             err_data = response.json().get("error", {})
                             msg = err_data.get("message", "")
-                            if "RequestsPerDay" in msg or "PerDayPerProjectPerModel" in str(err_data):
+                            if "RequestsPerDay" in msg or "PerDayPerProjectPerModel" in str(
+                                err_data
+                            ):
                                 logger.error(
                                     f"Límite diario alcanzado para el modelo '{self.model_name}'. "
                                     "Considera cambiar GEMINI_EMBEDDING_MODEL a otro modelo compatible."
