@@ -199,6 +199,131 @@ class GarminDatabase:
                 "CREATE INDEX IF NOT EXISTS idx_activities_type ON activities(activity_type)"
             )
 
+            # 8. Consolidated Daily Actuals (Unified flattened telemetry table)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS consolidated_daily_actuals (
+                    calendar_date TEXT PRIMARY KEY,
+                    total_steps INTEGER,
+                    total_distance_meters REAL,
+                    floors_ascended REAL,
+                    active_kilocalories REAL,
+                    resting_kilocalories REAL,
+                    total_kilocalories REAL,
+                    resting_heart_rate INTEGER,
+                    min_heart_rate INTEGER,
+                    max_heart_rate INTEGER,
+                    daily_avg_stress INTEGER,
+                    daily_max_stress INTEGER,
+                    rest_stress_duration_sec INTEGER,
+                    activity_stress_duration_sec INTEGER,
+                    low_stress_duration_sec INTEGER,
+                    medium_stress_duration_sec INTEGER,
+                    high_stress_duration_sec INTEGER,
+                    sleep_score INTEGER,
+                    total_sleep_seconds INTEGER,
+                    deep_sleep_seconds INTEGER,
+                    light_sleep_seconds INTEGER,
+                    rem_sleep_seconds INTEGER,
+                    awake_sleep_seconds INTEGER,
+                    avg_spo2 REAL,
+                    lowest_spo2 REAL,
+                    avg_respiration REAL,
+                    avg_sleep_stress REAL,
+                    hrv_rmssd REAL,
+                    hrv_weekly_avg REAL,
+                    hrv_status TEXT,
+                    hrv_baseline_low REAL,
+                    hrv_baseline_balanced_low REAL,
+                    hrv_baseline_balanced_upper REAL,
+                    vo2_max_running REAL,
+                    vo2_max_precise REAL,
+                    fitness_age REAL,
+                    chronological_age REAL,
+                    achievable_fitness_age REAL,
+                    fitness_age_gap REAL,
+                    body_fat_pct REAL,
+                    vigorous_minutes_avg REAL,
+                    target_potential_age REAL,
+                    activity_count INTEGER,
+                    total_activity_duration_sec REAL,
+                    total_activity_distance_m REAL,
+                    total_activity_calories REAL,
+                    avg_activity_hr REAL,
+                    max_activity_hr REAL,
+                    updated_at TEXT
+                )
+                """
+            )
+
+            # 9. Consolidated Biometric Forecasts (Unified forecast table)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS consolidated_biometric_forecasts (
+                    forecast_generated_date TEXT NOT NULL,
+                    target_date TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    predicted_value REAL NOT NULL,
+                    ci_lower REAL NOT NULL,
+                    ci_upper REAL NOT NULL,
+                    model_name TEXT NOT NULL,
+                    is_locked INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT,
+                    PRIMARY KEY (target_date, metric)
+                )
+                """
+            )
+
+            # 10. Unified Timeline View (Real vs Forecast continuous timeline)
+            cursor.execute("DROP VIEW IF EXISTS unified_biometrics_timeline")
+            cursor.execute(
+                """
+                CREATE VIEW unified_biometrics_timeline AS
+                SELECT
+                    calendar_date,
+                    'ACTUAL' AS record_type,
+                    resting_heart_rate,
+                    hrv_rmssd,
+                    daily_avg_stress,
+                    sleep_score,
+                    total_steps,
+                    active_kilocalories,
+                    total_kilocalories,
+                    fitness_age,
+                    chronological_age,
+                    fitness_age_gap,
+                    updated_at
+                FROM consolidated_daily_actuals
+                UNION ALL
+                SELECT
+                    f_dates.target_date AS calendar_date,
+                    'FORECAST' AS record_type,
+                    ROUND(f_rhr.predicted_value, 1) AS resting_heart_rate,
+                    ROUND(f_hrv.predicted_value, 1) AS hrv_rmssd,
+                    ROUND(f_str.predicted_value, 1) AS daily_avg_stress,
+                    ROUND(f_slp.predicted_value, 1) AS sleep_score,
+                    ROUND(f_stp.predicted_value, 0) AS total_steps,
+                    ROUND(f_act.predicted_value, 0) AS active_kilocalories,
+                    ROUND(f_tot.predicted_value, 0) AS total_kilocalories,
+                    ROUND(f_fit.predicted_value, 2) AS fitness_age,
+                    NULL AS chronological_age,
+                    ROUND(f_gap.predicted_value, 2) AS fitness_age_gap,
+                    f_dates.updated_at
+                FROM (SELECT DISTINCT target_date, MAX(updated_at) AS updated_at FROM consolidated_biometric_forecasts GROUP BY target_date) f_dates
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'resting_heart_rate') f_rhr ON f_dates.target_date = f_rhr.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'hrv_rmssd') f_hrv ON f_dates.target_date = f_hrv.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'daily_avg_stress') f_str ON f_dates.target_date = f_str.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'sleep_score') f_slp ON f_dates.target_date = f_slp.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'total_steps') f_stp ON f_dates.target_date = f_stp.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'active_kilocalories') f_act ON f_dates.target_date = f_act.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'total_kilocalories') f_tot ON f_dates.target_date = f_tot.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'fitness_age') f_fit ON f_dates.target_date = f_fit.target_date
+                LEFT JOIN (SELECT * FROM consolidated_biometric_forecasts WHERE metric = 'fitness_age_gap') f_gap ON f_dates.target_date = f_gap.target_date
+                WHERE f_dates.target_date NOT IN (SELECT calendar_date FROM consolidated_daily_actuals)
+                ORDER BY calendar_date ASC
+                """
+            )
+
     # -------------------------------------------------------------------------
     # Upsert Operations (Idempotent)
     # -------------------------------------------------------------------------
@@ -670,11 +795,258 @@ class GarminDatabase:
                         logger.debug(f"Could not load {act_json}: {e}")
 
         logger.info(f"Backfill complete! Ingested records: {stats}")
+        self.build_consolidated_actuals()
         return stats
+
+    # -------------------------------------------------------------------------
+    # Consolidation and Unified Data Models
+    # -------------------------------------------------------------------------
+
+    def build_consolidated_actuals(self, target_date: str | None = None) -> int:
+        """Consolidate telemetry from all base tables into consolidated_daily_actuals.
+
+        If target_date is provided, only that day is consolidated. Otherwise, all dates are consolidated.
+        Returns the number of consolidated rows upserted.
+        """
+        now = datetime.utcnow().isoformat()
+        filter_clause = "WHERE d.calendar_date = ?" if target_date else ""
+        params: tuple[Any, ...] = (target_date,) if target_date else ()
+
+        query = f"""
+            WITH daily_act AS (
+                SELECT
+                    calendar_date,
+                    COUNT(*) AS activity_count,
+                    SUM(duration_seconds) AS total_activity_duration_sec,
+                    SUM(distance_meters) AS total_activity_distance_m,
+                    SUM(calories) AS total_activity_calories,
+                    AVG(avg_hr) AS avg_activity_hr,
+                    MAX(max_hr) AS max_activity_hr
+                FROM activities
+                GROUP BY calendar_date
+            )
+            INSERT INTO consolidated_daily_actuals (
+                calendar_date, total_steps, total_distance_meters, floors_ascended,
+                active_kilocalories, resting_kilocalories, total_kilocalories,
+                resting_heart_rate, min_heart_rate, max_heart_rate,
+                daily_avg_stress, daily_max_stress, rest_stress_duration_sec,
+                activity_stress_duration_sec, low_stress_duration_sec,
+                medium_stress_duration_sec, high_stress_duration_sec,
+                sleep_score, total_sleep_seconds, deep_sleep_seconds,
+                light_sleep_seconds, rem_sleep_seconds, awake_sleep_seconds,
+                avg_spo2, lowest_spo2, avg_respiration, avg_sleep_stress,
+                hrv_rmssd, hrv_weekly_avg, hrv_status, hrv_baseline_low,
+                hrv_baseline_balanced_low, hrv_baseline_balanced_upper,
+                vo2_max_running, vo2_max_precise, fitness_age, chronological_age,
+                achievable_fitness_age, fitness_age_gap, body_fat_pct,
+                vigorous_minutes_avg, target_potential_age,
+                activity_count, total_activity_duration_sec, total_activity_distance_m,
+                total_activity_calories, avg_activity_hr, max_activity_hr, updated_at
+            )
+            SELECT
+                d.calendar_date,
+                d.total_steps,
+                d.total_distance_meters,
+                d.floors_ascended,
+                d.active_kilocalories,
+                CASE 
+                    WHEN d.total_kilocalories IS NOT NULL AND d.active_kilocalories IS NOT NULL 
+                    THEN (d.total_kilocalories - d.active_kilocalories)
+                    ELSE NULL 
+                END AS resting_kilocalories,
+                d.total_kilocalories,
+                d.resting_heart_rate,
+                d.min_heart_rate,
+                d.max_heart_rate,
+                d.avg_stress_level AS daily_avg_stress,
+                d.max_stress_level AS daily_max_stress,
+                st.rest_stress_duration_sec,
+                st.activity_stress_duration_sec,
+                st.low_stress_duration_sec,
+                st.medium_stress_duration_sec,
+                st.high_stress_duration_sec,
+                s.sleep_score,
+                s.total_sleep_seconds,
+                s.deep_sleep_seconds,
+                s.light_sleep_seconds,
+                s.rem_sleep_seconds,
+                s.awake_sleep_seconds,
+                s.avg_spo2,
+                s.lowest_spo2,
+                s.avg_respiration,
+                s.avg_sleep_stress,
+                h.last_night_avg AS hrv_rmssd,
+                h.weekly_avg AS hrv_weekly_avg,
+                h.status AS hrv_status,
+                h.baseline_low AS hrv_baseline_low,
+                h.baseline_balanced_low AS hrv_baseline_balanced_low,
+                h.baseline_balanced_upper AS hrv_baseline_balanced_upper,
+                m.vo2_max_running,
+                m.vo2_max_precise,
+                COALESCE(f.fitness_age, m.fitness_age) AS fitness_age,
+                f.chronological_age,
+                f.achievable_fitness_age,
+                COALESCE(f.fitness_age_gap, ROUND(f.chronological_age - f.fitness_age, 2)) AS fitness_age_gap,
+                f.body_fat_pct,
+                f.vigorous_minutes_avg,
+                f.target_potential_age,
+                COALESCE(a.activity_count, 0) AS activity_count,
+                COALESCE(a.total_activity_duration_sec, 0) AS total_activity_duration_sec,
+                COALESCE(a.total_activity_distance_m, 0) AS total_activity_distance_m,
+                COALESCE(a.total_activity_calories, 0) AS total_activity_calories,
+                a.avg_activity_hr,
+                a.max_activity_hr,
+                '{now}' AS updated_at
+            FROM daily_summaries d
+            LEFT JOIN sleep_records s ON d.calendar_date = s.calendar_date
+            LEFT JOIN hrv_records h ON d.calendar_date = h.calendar_date
+            LEFT JOIN stress_records st ON d.calendar_date = st.calendar_date
+            LEFT JOIN max_metrics m ON d.calendar_date = m.calendar_date
+            LEFT JOIN fitness_age_records f ON d.calendar_date = f.calendar_date
+            LEFT JOIN daily_act a ON d.calendar_date = a.calendar_date
+            {filter_clause}
+            ON CONFLICT(calendar_date) DO UPDATE SET
+                total_steps = excluded.total_steps,
+                total_distance_meters = excluded.total_distance_meters,
+                floors_ascended = excluded.floors_ascended,
+                active_kilocalories = excluded.active_kilocalories,
+                resting_kilocalories = excluded.resting_kilocalories,
+                total_kilocalories = excluded.total_kilocalories,
+                resting_heart_rate = excluded.resting_heart_rate,
+                min_heart_rate = excluded.min_heart_rate,
+                max_heart_rate = excluded.max_heart_rate,
+                daily_avg_stress = excluded.daily_avg_stress,
+                daily_max_stress = excluded.daily_max_stress,
+                rest_stress_duration_sec = excluded.rest_stress_duration_sec,
+                activity_stress_duration_sec = excluded.activity_stress_duration_sec,
+                low_stress_duration_sec = excluded.low_stress_duration_sec,
+                medium_stress_duration_sec = excluded.medium_stress_duration_sec,
+                high_stress_duration_sec = excluded.high_stress_duration_sec,
+                sleep_score = excluded.sleep_score,
+                total_sleep_seconds = excluded.total_sleep_seconds,
+                deep_sleep_seconds = excluded.deep_sleep_seconds,
+                light_sleep_seconds = excluded.light_sleep_seconds,
+                rem_sleep_seconds = excluded.rem_sleep_seconds,
+                awake_sleep_seconds = excluded.awake_sleep_seconds,
+                avg_spo2 = excluded.avg_spo2,
+                lowest_spo2 = excluded.lowest_spo2,
+                avg_respiration = excluded.avg_respiration,
+                avg_sleep_stress = excluded.avg_sleep_stress,
+                hrv_rmssd = excluded.hrv_rmssd,
+                hrv_weekly_avg = excluded.hrv_weekly_avg,
+                hrv_status = excluded.hrv_status,
+                hrv_baseline_low = excluded.hrv_baseline_low,
+                hrv_baseline_balanced_low = excluded.hrv_baseline_balanced_low,
+                hrv_baseline_balanced_upper = excluded.hrv_baseline_balanced_upper,
+                vo2_max_running = excluded.vo2_max_running,
+                vo2_max_precise = excluded.vo2_max_precise,
+                fitness_age = excluded.fitness_age,
+                chronological_age = excluded.chronological_age,
+                achievable_fitness_age = excluded.achievable_fitness_age,
+                fitness_age_gap = excluded.fitness_age_gap,
+                body_fat_pct = excluded.body_fat_pct,
+                vigorous_minutes_avg = excluded.vigorous_minutes_avg,
+                target_potential_age = excluded.target_potential_age,
+                activity_count = excluded.activity_count,
+                total_activity_duration_sec = excluded.total_activity_duration_sec,
+                total_activity_distance_m = excluded.total_activity_distance_m,
+                total_activity_calories = excluded.total_activity_calories,
+                avg_activity_hr = excluded.avg_activity_hr,
+                max_activity_hr = excluded.max_activity_hr,
+                updated_at = excluded.updated_at
+        """
+        with self.get_connection() as conn:
+            conn.execute(query, params)
+            changes_row = conn.execute("SELECT changes()").fetchone()
+            count = changes_row[0] if changes_row else 0
+            logger.info(f"Consolidación de reales completada: {count} registros en 'consolidated_daily_actuals'.")
+            return count
+
+    def upsert_consolidated_forecasts(
+        self,
+        forecast_records: list[dict[str, Any]] | Any,
+    ) -> int:
+        """Upsert predictions into consolidated_biometric_forecasts table.
+
+        Accepts either a list of dictionaries or a pandas DataFrame.
+        """
+        if hasattr(forecast_records, "to_dict"):
+            records = forecast_records.to_dict(orient="records")
+        elif isinstance(forecast_records, list):
+            records = forecast_records
+        else:
+            records = []
+
+        if not records:
+            return 0
+
+        now = datetime.utcnow().isoformat()
+        rows_to_insert = []
+        for r in records:
+            gen_date = r.get("forecast_generated_date") or r.get("generated_at") or now[:10]
+            target_d = str(r.get("target_date"))[:10]
+            metric = r.get("metric")
+            pred_val = r.get("predicted_value")
+            if pred_val is None:
+                pred_val = r.get("predicted_mean")
+            ci_low = r.get("ci_lower")
+            if ci_low is None:
+                ci_low = pred_val
+            ci_up = r.get("ci_upper")
+            if ci_up is None:
+                ci_up = pred_val
+            model = r.get("model_name", "EnsembleBiometricForecaster")
+            is_locked = int(r.get("is_locked", 1))
+
+            if target_d and metric and pred_val is not None:
+                rows_to_insert.append(
+                    (gen_date, target_d, metric, float(pred_val), float(ci_low), float(ci_up), model, is_locked, now)
+                )
+
+        if not rows_to_insert:
+            return 0
+
+        query = """
+            INSERT INTO consolidated_biometric_forecasts (
+                forecast_generated_date, target_date, metric, predicted_value,
+                ci_lower, ci_upper, model_name, is_locked, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(target_date, metric) DO UPDATE SET
+                forecast_generated_date = excluded.forecast_generated_date,
+                predicted_value = excluded.predicted_value,
+                ci_lower = excluded.ci_lower,
+                ci_upper = excluded.ci_upper,
+                model_name = excluded.model_name,
+                is_locked = excluded.is_locked,
+                updated_at = excluded.updated_at
+        """
+        with self.get_connection() as conn:
+            conn.executemany(query, rows_to_insert)
+            count = len(rows_to_insert)
+            logger.info(f"Consolidación de pronósticos completada: {count} registros en 'consolidated_biometric_forecasts'.")
+            return count
 
     # -------------------------------------------------------------------------
     # Analytical Query Helpers
     # -------------------------------------------------------------------------
+
+    def get_consolidated_actuals(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        """Retrieve unified consolidated real telemetry for a date range."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM consolidated_daily_actuals WHERE calendar_date BETWEEN ? AND ? ORDER BY calendar_date ASC",
+                (start_date, end_date),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_unified_timeline(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        """Retrieve continuous timeline empalming actuals and forecasts."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM unified_biometrics_timeline WHERE calendar_date BETWEEN ? AND ? ORDER BY calendar_date ASC",
+                (start_date, end_date),
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
     def get_biometrics_timeseries(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
         """Retrieve unified daily biometric timeline for ML and plotting."""
@@ -722,18 +1094,20 @@ class GarminDatabase:
         """Delete all telemetry and activity records on or after min_date."""
         deleted: dict[str, int] = {}
         tables = [
-            "daily_summaries",
-            "sleep_records",
-            "hrv_records",
-            "stress_records",
-            "max_metrics",
-            "fitness_age_records",
-            "activities",
+            ("daily_summaries", "calendar_date"),
+            ("sleep_records", "calendar_date"),
+            ("hrv_records", "calendar_date"),
+            ("stress_records", "calendar_date"),
+            ("max_metrics", "calendar_date"),
+            ("fitness_age_records", "calendar_date"),
+            ("activities", "calendar_date"),
+            ("consolidated_daily_actuals", "calendar_date"),
+            ("consolidated_biometric_forecasts", "target_date"),
         ]
         with self.get_connection() as conn:
-            for tbl in tables:
+            for tbl, date_col in tables:
                 cursor = conn.execute(
-                    f"DELETE FROM {tbl} WHERE calendar_date >= ?", (min_date,)
+                    f"DELETE FROM {tbl} WHERE {date_col} >= ?", (min_date,)
                 )
                 deleted[tbl] = cursor.rowcount
         logger.info(f"Registros eliminados a partir de {min_date}: {deleted}")
@@ -749,6 +1123,8 @@ class GarminDatabase:
             "max_metrics",
             "fitness_age_records",
             "activities",
+            "consolidated_daily_actuals",
+            "consolidated_biometric_forecasts",
         ]
         counts = {}
         with self.get_connection() as conn:
@@ -764,6 +1140,11 @@ def main() -> None:
         "--backfill",
         action="store_true",
         help="Scan data/raw/ and backfill all historical JSON snapshots into SQLite",
+    )
+    parser.add_argument(
+        "--build-consolidated",
+        action="store_true",
+        help="Rebuild consolidated_daily_actuals table from base tables",
     )
     parser.add_argument(
         "--db-path",
@@ -783,12 +1164,15 @@ def main() -> None:
     if args.backfill:
         db.ingest_raw_directory()
 
+    if args.build_consolidated:
+        db.build_consolidated_actuals()
+
     counts = db.count_records()
     print("\n" + "=" * 50)
     print(f"📊 Garmin SQLite Database Status: {db.db_path}")
     print("=" * 50)
     for table, count in counts.items():
-        print(f"  • {table:<22}: {count:>4} records")
+        print(f"  • {table:<32}: {count:>4} records")
     print("=" * 50 + "\n")
 
 
