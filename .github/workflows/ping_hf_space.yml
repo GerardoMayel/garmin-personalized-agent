@@ -1,0 +1,60 @@
+name: Keep-Alive - Hugging Face Chroma Space Ping
+
+on:
+  schedule:
+    # Runs every 10 minutes between 04:00 and 22:50 UTC (covers 06:00 to 23:00 Europe/Madrid year-round)
+    - cron: '*/10 4-22 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-space:
+    name: Ping ChromaDB Space (Keep-Alive)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Europe/Madrid Active Window (06:00 - 23:00)
+        id: time_check
+        run: |
+          MADRID_HOUR=$(TZ="Europe/Madrid" date +%-H)
+          MADRID_MIN=$(TZ="Europe/Madrid" date +%M)
+          echo "Current time in Madrid: ${MADRID_HOUR}:${MADRID_MIN}"
+          if [ "$MADRID_HOUR" -lt 6 ] || [ "$MADRID_HOUR" -ge 23 ]; then
+            echo "Outside active hours (06:00 to 23:00 Madrid). Skipping keep-alive ping to allow sleep."
+            echo "should_ping=false" >> $GITHUB_OUTPUT
+          else
+            echo "Inside active hours (06:00 to 23:00 Madrid). Proceeding with keep-alive ping."
+            echo "should_ping=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Authenticated Keep-Alive Ping
+        if: steps.time_check.outputs.should_ping == 'true'
+        env:
+          CHROMA_REMOTE_URL: ${{ secrets.CHROMA_REMOTE_URL }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$CHROMA_REMOTE_URL" ]; then
+            echo "⚠️ CHROMA_REMOTE_URL no está configurada en los Secrets del repositorio. Saltando ping."
+            exit 0
+          fi
+
+          URL="${CHROMA_REMOTE_URL%/}/health"
+          echo "Enviando ping a: $URL"
+
+          RESPONSE=$(curl -s -S -w "\n%{http_code}" \
+            -H "Authorization: Bearer $HF_TOKEN" \
+            --connect-timeout 20 \
+            --max-time 45 \
+            "$URL" || echo -e "\n000")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Código HTTP recibido: $HTTP_CODE"
+          echo "Respuesta del servidor: $BODY"
+
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Keep-alive exitoso. El Space de ChromaDB permanece activo y cálido."
+          elif [ "$HTTP_CODE" -eq 000 ]; then
+            echo "⚠️ Tiempo de espera agotado o error de conexión al despertar el Space."
+          else
+            echo "ℹ️ El Space respondió con código HTTP $HTTP_CODE."
+          fi

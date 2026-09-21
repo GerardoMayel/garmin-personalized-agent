@@ -129,6 +129,7 @@ garmin-personalized-agent/
 │   └── workflows/
 │       ├── ci.yml
 │       ├── data_sync_cron.yml
+│       ├── ping_hf_space.yml
 │       └── sync_science_papers.yml
 ├── configs/
 ├── data/
@@ -140,6 +141,13 @@ garmin-personalized-agent/
 │   │   │   └── variables_fisiologia_humana/
 │   │   └── processed_chunks/
 │   └── raw/
+├── deploy/
+│   └── hf_chroma_space/
+│       ├── Dockerfile
+│       ├── README.md
+│       ├── app.py
+│       ├── deploy_space.py
+│       └── requirements.txt
 ├── src/
 │   ├── analytics/
 │   │   ├── anomaly_detection.py
@@ -159,10 +167,13 @@ garmin-personalized-agent/
 │   │   ├── sync_human_physiology_papers.py
 │   │   └── sync_garmin_metric_descriptions.py
 │   └── rag/
+│       ├── embeddings.py
+│       ├── index_to_chroma.py
 │       ├── language_detector.py
 │       ├── ledger.py
 │       ├── loader_and_chunker.py
-│       └── schemas.py
+│       ├── schemas.py
+│       └── vector_store.py
 ├── tests/
 │   └── unit/
 ├── .env.example
@@ -175,13 +186,15 @@ garmin-personalized-agent/
 
 | Directorio / Módulo | Responsabilidad Principal |
 | :--- | :--- |
-| **`.github/workflows/`** | Automatizaciones CI/CD: verificación de código (`ci.yml`), sincronización diaria (`data_sync_cron.yml`) y pipeline mensual de White Papers y Chunks (`sync_science_papers.yml`). |
-| **`data/`** | Capa de persistencia: base SQLite relacional (`garmin_personal.db`), snapshots JSON particionados (`raw/`) y base de conocimiento científica y de métricas (`knowledge_base/`). |
+| **`.github/workflows/`** | Automatizaciones CI/CD: verificación (`ci.yml`), sincronización diaria (`data_sync_cron.yml`), pipeline mensual RAG (`sync_science_papers.yml`) y keep-alive de HF Space (`ping_hf_space.yml`). |
+| **`data/`** | Capa de persistencia: base SQLite relacional (`garmin_personal.db`), snapshots JSON (`raw/`) y base de conocimiento científica (`knowledge_base/`). |
+| **`deploy/hf_chroma_space/`** | Backend FastAPI containerizado para Hugging Face Spaces (Docker SDK, Private) con colección unificada `biometric_knowledge_base`. |
 | **`src/analytics/`** | Machine Learning y series de tiempo: descomposición temporal, modelos ARIMA/Prophet/Holt-Winters, detección de anomalías (Isolation Forest) y causalidad de Granger. |
-| **`src/common/`** | Infraestructura base: gestor de esquemas relacionales SQLite (`database.py`), cliente de almacenamiento Cloudflare R2 (`r2_storage.py`) y logging asíncrono con Loguru (`logger.py`). |
-| **`src/ingestion/`** | Clientes de ingestión: API de Garmin Connect (`garmin_client.py`, `garmin_sync.py`) y descargadores de literatura Firstbeat y glosarios de métricas. |
-| **`src/rag/`** | Pipeline de RAG (Fase 1): chunking por tokens BPE (400 tokens / 40% overlap), detección híbrida de idioma, control de estado con SHA-256 (`DocumentLedger`) y exportación a Apache Parquet. |
-| **`tests/unit/`** | Suite completa de 60 pruebas unitarias automatizadas con `pytest`. |
+| **`src/common/`** | Infraestructura base: gestor SQLite (`database.py`), cliente Cloudflare R2 (`r2_storage.py`) y logging con Loguru (`logger.py`). |
+| **`src/ingestion/`** | Clientes de ingestión: API de Garmin Connect y descargadores de literatura Firstbeat y glosario de métricas. |
+| **`src/rag/`** | Pipeline de RAG: chunking BPE (400 tokens / 40% overlap), embeddings Google Gemini (768 dims), cliente ChromaDB (Local/Remoto) e indexación batch. |
+| **`tests/unit/`** | Suite completa de 69 pruebas unitarias automatizadas con `pytest`. |
+
 
 
 ---
@@ -246,9 +259,25 @@ uv run python -m src.ingestion.sync_garmin_metric_descriptions
 uv run python -m src.rag.loader_and_chunker --sync-r2
 ```
 
-### 6. Ejecución de Tests y Verificación de Código
+### 6. Indexación Vectorial en ChromaDB (Google Gemini 768-dim)
+Genera embeddings densos para los 702 fragmentos e indexa en ChromaDB (local o Space remoto en Hugging Face):
 ```bash
-# Ejecutar suite de 60 tests unitarios
+# Indexación en base local embebida (data/chroma_db)
+uv run python -m src.rag.index_to_chroma
+
+# O indexación hacia el Space remoto de Hugging Face
+uv run python -m src.rag.index_to_chroma --remote
+```
+
+### 7. Despliegue del Backend ChromaDB a Hugging Face Space (Docker)
+```bash
+# Despliegue automatizado del contenedor FastAPI a tu Space
+uv run python deploy/hf_chroma_space/deploy_space.py --space tu_usuario_hf/garmin-chroma-backend
+```
+
+### 8. Ejecución de Tests y Verificación de Código
+```bash
+# Ejecutar suite de 69 tests unitarios
 uv run pytest
 
 # Verificación de linter y formateo
@@ -265,6 +294,7 @@ uv run mypy src tests
 
 - [x] **Fase 0**: Ingestión de telemetría Garmin y persistencia relacional en SQLite.
 - [x] **Fase 1**: Ingestión de literatura Firstbeat (3 fuentes), glosario de métricas, chunker BPE de 400 tokens, esquemas Parquet, reconciliación con DocumentLedger y CI/CD mensual en GitHub Actions.
-- [ ] **Fase 2**: Generación de Embeddings Densos y Base de Datos Vectorial (indexación de chunks Parquet en Vector Store / Cloudflare Vectorize).
+- [x] **Fase 2**: Generación de Embeddings Densos con Google Gemini (768-dim), Backend Vectorial ChromaDB en Hugging Face Spaces (Docker), pipeline de indexación batch y Keep-Alive automatizado.
 - [ ] **Fase 3**: Recuperador Híbrido (Dense Semantic + BM25 Lexical con Reranker cross-encoder).
 - [ ] **Fase 4**: Agente de Razonamiento Fisiológico con LangGraph y Dashboard interactivo en Streamlit.
+
