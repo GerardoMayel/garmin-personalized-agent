@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -84,8 +85,21 @@ class GarminDataIngestor:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)
 
-    def sync_daily_biometrics(self, target_date: date) -> dict[str, bool]:
-        """Descarga métricas biomédicas para una fecha y las persiste en JSON y SQLite."""
+    def sync_daily_biometrics(
+        self, target_date: date, allow_today: bool = False
+    ) -> dict[str, bool]:
+        """Descarga métricas biomédicas para una fecha y las persiste en JSON y SQLite.
+
+        Respeta estrictamente la regla de 'día vencido': si target_date >= date.today()
+        y allow_today es False, se rechaza la descarga para evitar persistir días inconclusos.
+        """
+        if not allow_today and target_date >= date.today():
+            logger.warning(
+                f"Omitiendo sincronización de {target_date}: regla de 'día vencido' activa. "
+                f"Solo se sincronizan días cerrados (< {date.today()})."
+            )
+            return {}
+
         date_str = target_date.isoformat()
         day_dir = self.raw_data_dir / date_str
         logger.info(f"Sincronizando métricas para la fecha: {date_str}")
@@ -143,6 +157,82 @@ class GarminDataIngestor:
 
         return results
 
+    def is_day_complete_and_valid(self, target_date: date) -> tuple[bool, str]:
+        """Verifica si los datos raw y la persistencia en SQLite para una fecha están completos y sin nulos corruptos."""
+        if target_date >= date.today():
+            return False, "fecha en curso o futura (regla de día vencido)"
+
+        date_str = target_date.isoformat()
+        day_dir = self.raw_data_dir / date_str
+
+        # 1. Comprobar existencia del directorio
+        if not day_dir.exists() or not day_dir.is_dir():
+            return False, "directorio raw no existe"
+
+        # 2. Comprobar presencia de los 5 archivos raw esenciales
+        expected_files = [
+            "daily_summary.json",
+            "stress.json",
+            "sleep.json",
+            "hrv.json",
+            "max_metrics.json",
+        ]
+        for fname in expected_files:
+            fpath = day_dir / fname
+            if not fpath.exists():
+                return False, f"archivo raw '{fname}' ausente"
+
+        # 3. Validar contenido de daily_summary.json y stress.json
+        try:
+            with open(day_dir / "daily_summary.json", "r", encoding="utf-8") as f:
+                daily_summary = json.load(f)
+            steps = daily_summary.get("totalSteps")
+            avg_stress = daily_summary.get("averageStressLevel")
+            if steps is None or avg_stress is None:
+                return False, "métricas clave nulas en daily_summary.json (totalSteps o averageStressLevel)"
+        except Exception as e:
+            return False, f"error parseando daily_summary.json: {e}"
+
+        try:
+            with open(day_dir / "stress.json", "r", encoding="utf-8") as f:
+                stress_data = json.load(f)
+            if stress_data.get("avgStressLevel") is None and stress_data.get("maxStressLevel") is None:
+                return False, "stress.json no contiene niveles de estrés válidos"
+        except Exception as e:
+            return False, f"error parseando stress.json: {e}"
+
+        # 4. Validar persistencia en base de datos SQLite
+        row = self.db.get_daily_summary(date_str)
+        if not row:
+            return False, "registro ausente en tabla daily_summaries de SQLite"
+        if row.get("avg_stress_level") is None or row.get("total_steps") is None:
+            return False, "registro en SQLite con columnas clave nulas"
+
+        return True, "completo y consolidado"
+
+    def purge_unclosed_or_future_dates(self) -> list[str]:
+        """Elimina particiones raw y registros de SQLite correspondientes a fechas en curso o futuras."""
+        today_str = date.today().isoformat()
+        purged: list[str] = []
+
+        # 1. Limpieza de SQLite
+        del_db_stats = self.db.delete_records_on_or_after(today_str)
+        logger.info(f"Purga de registros SQLite >= {today_str}: {del_db_stats}")
+
+        # 2. Limpieza de data/raw/
+        if self.raw_data_dir.exists():
+            for item in self.raw_data_dir.iterdir():
+                if item.is_dir() and item.name >= today_str:
+                    try:
+                        date.fromisoformat(item.name)
+                        shutil.rmtree(item)
+                        purged.append(item.name)
+                        logger.warning(f"Partición raw no cerrada eliminada: {item.as_posix()}")
+                    except ValueError:
+                        continue
+
+        return purged
+
     def sync_activities(self, limit: int = 10, download_fit: bool = True) -> list[dict[str, Any]]:
         """Descarga el resumen de actividades recientes, archivos .fit y actualiza la base de datos."""
         logger.info(f"Obteniendo las últimas {limit} actividades...")
@@ -184,15 +274,60 @@ class GarminDataIngestor:
 
         return downloaded
 
-    def run_sync_window(self, days_back: int = 7, sync_fit: bool = True) -> None:
-        """Ejecuta una sincronización completa para una ventana móvil de N días hacia atrás."""
-        today = date.today()
+    def reconcile_and_repair_window(
+        self, days_back: int = 15, sync_fit: bool = True, force: bool = False
+    ) -> dict[str, list[str]]:
+        """Inspecciona y repara automáticamente cualquier día con archivos faltantes o métricas nulas en la ventana móvil."""
+        logger.info(
+            f"Iniciando reconciliación y autorreparación de los últimos {days_back} días a día vencido..."
+        )
+        stats: dict[str, list[str]] = {
+            "skipped": [],
+            "repaired": [],
+            "failed": [],
+            "purged": [],
+        }
+
+        # Purgar cualquier partición o registro >= hoy
+        stats["purged"] = self.purge_unclosed_or_future_dates()
+
+        yesterday = date.today() - timedelta(days=1)
         for i in range(days_back):
-            current_date = today - timedelta(days=i)
+            current_date = yesterday - timedelta(days=i)
+            date_str = current_date.isoformat()
+
+            is_valid, reason = self.is_day_complete_and_valid(current_date)
+            if is_valid and not force:
+                logger.info(f"Día {date_str} verificado y consolidado ({reason}). Omitiendo.")
+                stats["skipped"].append(date_str)
+                continue
+
+            logger.info(
+                f"Día {date_str} requiere reconciliación/reparación ({reason}). Descargando de Garmin Connect..."
+            )
+            try:
+                res = self.sync_daily_biometrics(current_date, allow_today=False)
+                if any(res.values()):
+                    stats["repaired"].append(date_str)
+                else:
+                    stats["failed"].append(date_str)
+            except Exception as e:
+                logger.error(f"Error reparando el día {date_str}: {e}")
+                stats["failed"].append(date_str)
+
+        self.sync_activities(limit=days_back * 2, download_fit=sync_fit)
+        logger.info(f"Reconciliación y autorreparación completada: {stats}")
+        return stats
+
+    def run_sync_window(self, days_back: int = 15, sync_fit: bool = True) -> None:
+        """Ejecuta una sincronización completa para una ventana móvil a día vencido (T-1 hacia atrás)."""
+        yesterday = date.today() - timedelta(days=1)
+        for i in range(days_back):
+            current_date = yesterday - timedelta(days=i)
             self.sync_daily_biometrics(current_date)
 
         self.sync_activities(limit=days_back * 2, download_fit=sync_fit)
-        logger.info("Sincronización completada exitosamente.")
+        logger.info("Sincronización a día vencido completada exitosamente.")
 
 
 if __name__ == "__main__":

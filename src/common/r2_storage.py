@@ -244,6 +244,34 @@ class R2StorageClient:
             logger.error(f"Error restaurando data/raw/ desde R2: {e}")
             return stats
 
+    def delete_prefix(self, remote_prefix: str) -> int:
+        """Delete all objects matching a remote key prefix in Cloudflare R2."""
+        deleted_count = 0
+        if not self.is_configured():
+            logger.error("R2 no configurado para eliminar objetos.")
+            return deleted_count
+
+        try:
+            assert self._client is not None
+            paginator = self._client.get_paginator("list_objects_v2")
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=remote_prefix)
+
+            for page in pages:
+                objects_to_delete = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+                if objects_to_delete:
+                    self._client.delete_objects(
+                        Bucket=self.bucket_name,
+                        Delete={"Objects": objects_to_delete},
+                    )
+                    deleted_count += len(objects_to_delete)
+                    logger.info(
+                        f"Eliminados {len(objects_to_delete)} objetos bajo '{remote_prefix}' en R2."
+                    )
+
+            return deleted_count
+        except Exception as e:
+            logger.error(f"Error eliminando prefijo '{remote_prefix}' en R2: {e}")
+            return deleted_count
     def sync_dvc_dataset(
         self,
         dvc_dir: str | Path = "data/dvc",

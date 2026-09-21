@@ -178,7 +178,7 @@ class TestGarminDataIngestor:
         assert fit_file.read_bytes() == b"MOCK_FIT_BINARY_DATA"
 
     def test_run_sync_window(self, tmp_path: Path):
-        """Should execute biometrics and activities sync over a multi-day window."""
+        """Should execute biometrics and activities sync over a multi-day window starting at T-1."""
         mock_client = MagicMock()
         mock_client.get_sleep_data.return_value = {}
         mock_client.get_hrv_data.return_value = {}
@@ -198,3 +198,42 @@ class TestGarminDataIngestor:
 
         assert mock_client.get_sleep_data.call_count == 3
         mock_client.get_activities.assert_called_once_with(0, 6)
+
+    def test_sync_daily_biometrics_blocks_today(self, tmp_path: Path):
+        """Should reject date.today() by default under the 'día vencido' rule."""
+        mock_client = MagicMock()
+        ingestor = GarminDataIngestor(
+            email="test@example.com",
+            password="secure_password",
+            raw_data_dir=str(tmp_path / "raw"),
+            client=mock_client,
+        )
+
+        res = ingestor.sync_daily_biometrics(date.today(), allow_today=False)
+        assert res == {}
+        mock_client.get_sleep_data.assert_not_called()
+
+    def test_purge_unclosed_or_future_dates(self, tmp_path: Path):
+        """Should purge any raw directory with date >= today."""
+        mock_client = MagicMock()
+        raw_dir = tmp_path / "raw"
+        today_dir = raw_dir / date.today().isoformat()
+        today_dir.mkdir(parents=True, exist_ok=True)
+        (today_dir / "daily_summary.json").write_text("{}", encoding="utf-8")
+
+        mock_db = MagicMock()
+        mock_db.delete_records_on_or_after.return_value = {"daily_summaries": 1}
+
+        ingestor = GarminDataIngestor(
+            email="test@example.com",
+            password="secure_password",
+            raw_data_dir=str(raw_dir),
+            client=mock_client,
+            db=mock_db,
+        )
+
+        purged = ingestor.purge_unclosed_or_future_dates()
+        assert date.today().isoformat() in purged
+        assert not today_dir.exists()
+        mock_db.delete_records_on_or_after.assert_called_once_with(date.today().isoformat())
+

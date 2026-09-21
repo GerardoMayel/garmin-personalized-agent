@@ -65,6 +65,10 @@ credentials.json
 !/data/multimodal/.gitkeep
 /data/training/*
 !/data/training/.gitkeep
+/data/dvc/*
+!/data/dvc/.gitkeep
+/data/artifacts/*
+!/data/artifacts/.gitkeep
 *.fit
 *.parquet
 

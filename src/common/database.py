@@ -599,6 +599,34 @@ class GarminDatabase:
             cursor = conn.execute(query, (start_date, end_date))
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_daily_summary(self, calendar_date: str) -> dict[str, Any] | None:
+        """Fetch daily summary record by date."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM daily_summaries WHERE calendar_date = ?", (calendar_date,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_records_on_or_after(self, min_date: str) -> dict[str, int]:
+        """Delete all telemetry and activity records on or after min_date."""
+        deleted: dict[str, int] = {}
+        tables = [
+            "daily_summaries",
+            "sleep_records",
+            "hrv_records",
+            "stress_records",
+            "max_metrics",
+            "activities",
+        ]
+        with self.get_connection() as conn:
+            for tbl in tables:
+                cursor = conn.execute(
+                    f"DELETE FROM {tbl} WHERE calendar_date >= ?", (min_date,)
+                )
+                deleted[tbl] = cursor.rowcount
+        logger.info(f"Registros eliminados a partir de {min_date}: {deleted}")
+        return deleted
+
     def count_records(self) -> dict[str, int]:
         """Count rows in all tables."""
         tables = [
