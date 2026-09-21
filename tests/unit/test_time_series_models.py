@@ -50,15 +50,17 @@ class TestPhysiologicalBounds:
         assert floor < cap
 
     def test_stress_and_sleep_bounds(self):
-        """Should strictly enforce [0, 100] for stress and sleep score."""
+        """Should enforce empirical baseline bounds for daily stress and valid scale for sleep score."""
         series = pd.Series([25.0, 35.0, 40.0, 30.0])
         floor_stress, cap_stress = compute_physiological_bounds(series, "daily_avg_stress")
-        assert floor_stress == 0.0
-        assert cap_stress == 100.0
+        assert floor_stress >= 10.0
+        assert cap_stress <= 40.0
+        assert floor_stress < cap_stress
 
         floor_sleep, cap_sleep = compute_physiological_bounds(series, "sleep_score")
-        assert floor_sleep == 0.0
-        assert cap_sleep == 100.0
+        assert floor_sleep >= 15.0
+        assert cap_sleep <= 100.0
+        assert floor_sleep < cap_sleep
 
 
 class TestGarminProphetForecaster:

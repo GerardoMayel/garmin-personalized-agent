@@ -206,6 +206,44 @@ class R2StorageClient:
         logger.info(f"Sincronización de data/raw/ completada: {stats}")
         return stats
 
+    def restore_raw_directory(
+        self,
+        raw_dir: str | Path = DEFAULT_RAW_DIR,
+        remote_prefix: str = "raw_data",
+    ) -> dict[str, int]:
+        """Download all raw data partitions from Cloudflare R2 into local directory."""
+        stats = {"downloaded": 0, "failed": 0, "skipped": 0}
+        if not self.is_configured():
+            logger.error("R2 no configurado para restaurar raw_data.")
+            return stats
+
+        try:
+            assert self._client is not None
+            paginator = self._client.get_paginator("list_objects_v2")
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=f"{remote_prefix}/")
+
+            dest_root = Path(raw_dir)
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/") or key.endswith(".gitkeep"):
+                        continue
+                    rel_path = key[len(remote_prefix) + 1 :]
+                    local_dest = dest_root / rel_path
+                    if local_dest.exists() and local_dest.stat().st_size == obj["Size"]:
+                        stats["skipped"] += 1
+                        continue
+                    if self.download_file(key, local_dest):
+                        stats["downloaded"] += 1
+                    else:
+                        stats["failed"] += 1
+
+            logger.info(f"Restauración de data/raw/ desde R2 completada: {stats}")
+            return stats
+        except Exception as e:
+            logger.error(f"Error restaurando data/raw/ desde R2: {e}")
+            return stats
+
     def sync_dvc_dataset(
         self,
         dvc_dir: str | Path = "data/dvc",
@@ -426,6 +464,11 @@ def main() -> None:
     )
     parser.add_argument("--sync-raw", action="store_true", help="Upload data/raw/ partitions to R2")
     parser.add_argument(
+        "--restore-raw",
+        action="store_true",
+        help="Download raw_data/ partitions from R2 into data/raw/",
+    )
+    parser.add_argument(
         "--sync-dvc", action="store_true", help="Upload data/dvc/ clean dataset to R2"
     )
     parser.add_argument(
@@ -490,6 +533,11 @@ def main() -> None:
     if args.sync_raw:
         res = client.sync_raw_directory()
         print(f"Resultado de sincronización raw: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.restore_raw:
+        res = client.restore_raw_directory()
+        print(f"Resultado de restauración raw desde R2: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
 
     if args.sync_dvc:
