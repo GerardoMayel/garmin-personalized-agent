@@ -7,7 +7,9 @@ import numpy as np
 from src.rag.guardrails import (
     LLMBudgetTracker,
     check_domain,
+    detect_query_language,
     normalize_text,
+    rerank_candidates,
     scan_prompt_injection,
 )
 
@@ -175,3 +177,81 @@ def test_llm_budget_tracker_limits() -> None:
     assert usage["hour_limit"] == 3
     assert usage["day_used"] == 3
     assert usage["remaining_today"] == 2
+
+
+def test_detect_query_language_spanish() -> None:
+    """Debe clasificar consultas en español como permitidas ('es', True)."""
+    spanish_queries = [
+        "¿Cómo mejora el sueño la variabilidad de la frecuencia cardíaca?",
+        "rMSSD bajo",
+        "que es rmssd y como influye en el estres",
+        "sueno profundo y recuperacion en garmin",
+        "mi vfc esta baja despues de entrenar",
+        "como funciona el sensor elevate v5",
+    ]
+    for q in spanish_queries:
+        lang, is_allowed = detect_query_language(q)
+        assert is_allowed is True, f"Fallo al permitir consulta en español: {q}"
+        assert lang == "es", f"Esperado 'es' pero obtuvo '{lang}' para: {q}"
+
+
+def test_detect_query_language_english() -> None:
+    """Debe clasificar consultas en inglés como permitidas ('en', True)."""
+    english_queries = [
+        "How does sleep affect heart rate variability and recovery?",
+        "what is rmssd in garmin watches",
+        "how does body battery work during the night",
+        "deep sleep stages and muscular recovery",
+    ]
+    for q in english_queries:
+        lang, is_allowed = detect_query_language(q)
+        assert is_allowed is True, f"Fallo al permitir consulta en inglés: {q}"
+        assert lang == "en", f"Esperado 'en' pero obtuvo '{lang}' para: {q}"
+
+
+def test_detect_query_language_unsupported_rejection() -> None:
+    """Debe rechazar estrictamente cualquier idioma distinto de español o inglés."""
+    unsupported_queries = [
+        "Comment puis-je améliorer mon sommeil avec Garmin?",
+        "Wie verbessert Garmin die Schlafqualität?",
+        "Como posso melhorar meu sono com o Garmin?",
+        "Come posso migliorare il sonno con Garmin?",
+        "Bonjour tout le monde",
+        "Ciao Garmin come stai oggi?",
+        "Guten Morgen Garmin",
+    ]
+    for q in unsupported_queries:
+        lang, is_allowed = detect_query_language(q)
+        assert is_allowed is False, f"Debería rechazar idioma no permitido para: {q} ({lang})"
+
+
+def test_rerank_candidates_hybrid() -> None:
+    """Debe reordenar los candidatos dando prioridad a concordancia léxica y de tags sobre distancia cruda."""
+    query = "como afecta el rmssd y la variabilidad de la frecuencia cardiaca al estres"
+    candidates = [
+        {
+            "id": "c1",
+            "document": "El sueño profundo es la fase donde los músculos liberan hormona de crecimiento...",
+            "distance": 0.14,
+            "metadata": {"source": "variables_fisiologia_humana", "tags": "sueno,rem"},
+        },
+        {
+            "id": "c2",
+            "document": "La variabilidad de la frecuencia cardíaca (VFC) y el rMSSD reflejan el tono del sistema nervioso autónomo y los niveles de estrés...",
+            "distance": 0.17,
+            "metadata": {"source": "variables_fisiologia_humana", "tags": "rmssd,vfc,estres"},
+        },
+        {
+            "id": "c3",
+            "document": "Los sensores Elevate v5 de Garmin incluyen diodos ópticos verdes e infrarrojos para muñeca...",
+            "distance": 0.22,
+            "metadata": {"source": "dispositivos_garmin_sensores", "tags": "elevate,pulsaciones"},
+        },
+    ]
+
+    reranked = rerank_candidates(query, candidates, top_k=2)
+    assert len(reranked) == 2
+    # El candidato c2 debe quedar en primer lugar tras el reranking gracias al solapamiento léxico de tags y términos clave
+    assert reranked[0]["id"] == "c2"
+    assert "rerank_score" in reranked[0]
+    assert reranked[0]["rerank_score"] > reranked[1]["rerank_score"]

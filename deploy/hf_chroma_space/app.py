@@ -30,18 +30,23 @@ try:
     from guardrails import (
         LLMBudgetTracker,
         check_domain,
+        detect_query_language,
         normalize_text,
+        rerank_candidates,
         scan_prompt_injection,
     )
 except ImportError:
     from deploy.hf_chroma_space.guardrails import (
         LLMBudgetTracker,
         check_domain,
+        detect_query_language,
         normalize_text,
+        rerank_candidates,
         scan_prompt_injection,
     )
 
 COLLECTION_NAME = "biometric_knowledge_base"
+ALLOWED_RAG_SOURCES = ["variables_fisiologia_humana", "dispositivos_garmin_sensores"]
 DEFAULT_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
 DEFAULT_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
 DEFAULT_LLM_MODEL = os.getenv("GEMINI_LLM_MODEL", "gemini-3.5-flash-lite")
@@ -439,6 +444,24 @@ def ask_rag(
     user_query = payload.query.strip()
     clean_query = normalize_text(user_query)
 
+    # --- Capa 1: Filtro Estricto de Idioma (Solo Español e Inglés permitidos) ---
+    lang, is_allowed = detect_query_language(user_query)
+    if not is_allowed:
+        return AskResponse(
+            status="unsupported_language",
+            query=user_query,
+            answer=(
+                "Idioma no permitido. El asistente de telemetría y fisiología de Garmin solo "
+                "acepta consultas en español o inglés.\n"
+                "Unsupported language. The Garmin telemetry and physiology assistant only "
+                "accepts queries in Spanish or English."
+            ),
+            domain_similarity=0.0,
+            guardrail_status="language_rejected",
+            sources=[],
+            budget_usage=llm_budget.get_usage(),
+        )
+
     # --- Capa 3: Sanitización y Heurísticas NLP contra Prompt Injections ---
     is_malicious, attack_type = scan_prompt_injection(user_query)
     if is_malicious:
@@ -490,28 +513,81 @@ def ask_rag(
             detail=budget_msg,
         )
 
+    # Restringir estrictamente la recuperación a variables_fisiologia_humana y dispositivos_garmin_sensores
+    base_source_filter: dict[str, Any] = {"source": {"$in": ALLOWED_RAG_SOURCES}}
+    if payload.where:
+        if "source" in payload.where:
+            req_src = payload.where["source"]
+            if isinstance(req_src, str) and req_src in ALLOWED_RAG_SOURCES:
+                source_filter = {"source": req_src}
+            elif isinstance(req_src, dict) and "$in" in req_src:
+                valid_subset = [s for s in req_src["$in"] if s in ALLOWED_RAG_SOURCES]
+                source_filter = {"source": {"$in": valid_subset or ALLOWED_RAG_SOURCES}}
+            else:
+                source_filter = base_source_filter
+        else:
+            source_filter = {
+                "$and": [
+                    base_source_filter,
+                    payload.where,
+                ]
+            }
+    else:
+        source_filter = base_source_filter
+
+    # Recuperar candidatos expandidos para la fase de Reranking
+    candidate_pool_size = min(max(payload.top_k * 3, 10), collection.count())
     query_args: dict[str, Any] = {
         "query_embeddings": [query_vector],
-        "n_results": min(payload.top_k, collection.count()),
+        "n_results": candidate_pool_size,
+        "where": source_filter,
         "include": ["documents", "metadatas", "distances"],
     }
-    if payload.where:
-        query_args["where"] = payload.where
 
     query_res = collection.query(**query_args)
-    retrieved_ids = query_res.get("ids", [[]])[0]
-    retrieved_docs = query_res.get("documents", [[]])[0]
-    retrieved_metas = query_res.get("metadatas", [[]])[0]
-    retrieved_dists = query_res.get("distances", [[]])[0]
+    raw_ids = query_res.get("ids", [[]])[0]
+    raw_docs = query_res.get("documents", [[]])[0]
+    raw_metas = query_res.get("metadatas", [[]])[0]
+    raw_dists = query_res.get("distances", [[]])[0]
+
+    candidate_items: list[dict[str, Any]] = []
+    for i in range(len(raw_ids)):
+        candidate_items.append(
+            {
+                "id": raw_ids[i],
+                "document": raw_docs[i] if raw_docs else "",
+                "metadata": raw_metas[i] if raw_metas else {},
+                "distance": float(raw_dists[i]) if raw_dists else 0.0,
+            }
+        )
+
+    # --- Motor de Reranking Híbrido (RRF + BM25) ---
+    reranked_results = rerank_candidates(clean_query, candidate_items, top_k=payload.top_k)
+
+    if not reranked_results:
+        return AskResponse(
+            status="no_matching_evidence",
+            query=user_query,
+            answer=(
+                "No se encontró evidencia biomédica suficiente en las fuentes autorizadas "
+                "('variables_fisiologia_humana' y 'dispositivos_garmin_sensores') para responder "
+                "con rigor a esta consulta."
+            ),
+            domain_similarity=round(domain_sim, 4),
+            guardrail_status="passed",
+            sources=[],
+            budget_usage=llm_budget.get_usage(),
+        )
 
     sources_list: list[SourceCitation] = []
     context_blocks: list[str] = []
 
-    for i in range(len(retrieved_ids)):
-        cid = retrieved_ids[i]
-        doc_txt = retrieved_docs[i] if retrieved_docs else ""
-        meta = retrieved_metas[i] if retrieved_metas else {}
-        dist = float(retrieved_dists[i]) if retrieved_dists else 0.0
+    for i, cand in enumerate(reranked_results):
+        cid = cand["id"]
+        doc_txt = str(cand.get("document", ""))
+        meta = cand.get("metadata", {}) or {}
+        dist = float(cand.get("distance", 0.0))
+        rerank_score = float(cand.get("rerank_score", 0.0))
 
         sources_list.append(
             SourceCitation(
@@ -520,20 +596,33 @@ def ask_rag(
                 source=str(meta.get("source", "unknown")),
                 distance=round(dist, 4),
                 excerpt=doc_txt[:250] + "..." if len(doc_txt) > 250 else doc_txt,
-                metadata=meta,
+                metadata={**meta, "rerank_score": rerank_score},
             )
         )
         context_blocks.append(
-            f"[Documento {i + 1}: {meta.get('document_id')} | Fuente: {meta.get('source')} | Distancia Coseno: {dist:.4f}]\n{doc_txt}"
+            f"[Documento {i + 1}: {meta.get('document_id')} | Fuente: {meta.get('source')} | Distancia Coseno: {dist:.4f} | Rerank Score: {rerank_score:.5f}]\n{doc_txt}"
         )
 
     context_str = "\n\n---\n\n".join(context_blocks)
 
+    if lang == "en":
+        lang_instruction = (
+            "Language Requirement: The user asked in English. You must provide your complete "
+            "response in English, maintaining technical precision and clear explanations."
+        )
+    else:
+        lang_instruction = (
+            "Requisito Estricto de Idioma: La respuesta siempre debe darse en español, "
+            "independientemente del idioma de los documentos o de cómo se haya formulado la pregunta. "
+            "Mantén un tono técnico, pedagógico y riguroso."
+        )
+
     system_prompt = (
         "Eres el Asistente Experto en Fisiología Deportiva y Telemetría de Garmin del usuario.\n"
-        "Tu misión es responder rigurosa y pedagógicamente a la consulta basándote en la evidencia "
-        "biomédica provista en los fragmentos de contexto (Firstbeat Analytics, whitepapers de sensores Garmin, "
-        "fisiología del estrés y recuperación).\n\n"
+        "Tu misión es responder rigurosa y pedagógicamente a la consulta basándote exclusivamente en la evidencia "
+        "biomédica y tecnológica provista en los fragmentos de contexto (Firstbeat Analytics y sensores Garmin: "
+        "variables_fisiologia_humana y dispositivos_garmin_sensores).\n\n"
+        f"{lang_instruction}\n\n"
         "Directrices:\n"
         "1. Proporciona explicaciones fisiológicas claras, precisas y accionables para el deportista.\n"
         "2. Cita de forma natural los whitepapers o fuentes relevantes presentes en el contexto.\n"

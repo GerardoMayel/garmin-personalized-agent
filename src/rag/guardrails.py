@@ -1,7 +1,10 @@
 """Multi-Layer NLP Guardrails and LLM Call Budget Protection.
 
-Shared module for RAG security, text normalization, prompt injection detection,
-domain validation, and LLM rate/budget tracking.
+Provides zero-extra-call security and domain validation:
+1. Aggressive text normalization (Anti-obfuscation / Leetspeak / spaced bypasses).
+2. Compiled regex attack patterns categorized by threat family (Overrides, Jailbreaks, Leaks, Syntax).
+3. Fast-path lexicon lookup + semantic cosine similarity using the existing query embedding.
+4. Strict in-memory LLM call budget tracker (max 60 calls/hour, max 100 calls/day).
 """
 
 from __future__ import annotations
@@ -13,6 +16,9 @@ import unicodedata
 from typing import Any
 
 import numpy as np
+from langdetect import DetectorFactory, detect
+
+DetectorFactory.seed = 0
 
 # ---------------------------------------------------------------------
 # 1. NORMALIZADOR ANTI-OFUSCACIÓN (LEETSPEAK & BYPASSES)
@@ -232,3 +238,167 @@ class LLMBudgetTracker:
             "day_limit": self.max_per_day,
             "remaining_today": max(0, self.max_per_day - day_count),
         }
+
+
+# ---------------------------------------------------------------------
+# 5. DETECTOR Y FILTRO ESTRICTO DE IDIOMA
+# ---------------------------------------------------------------------
+
+SPANISH_STOPWORDS = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "en", "para",
+    "por", "con", "sin", "sobre", "como", "que", "cual", "cuando", "donde", "porque",
+    "mi", "mis", "tu", "tus", "su", "sus", "esta", "este", "esto", "estos", "estas",
+    "es", "son", "fue", "muy", "mas", "menos", "pero", "sueno", "frecuencia", "cardiaca",
+    "estres", "recuperacion", "entrenamiento", "bajo", "baja", "alto", "alta", "cuerpo",
+    "descanso", "pulsaciones", "ritmo", "horas", "noche", "dia", "semana", "reloj",
+}
+
+ENGLISH_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has",
+    "had", "do", "does", "did", "will", "would", "should", "can", "could", "of", "in",
+    "to", "for", "with", "on", "at", "from", "by", "about", "as", "into", "what", "how",
+    "why", "when", "where", "which", "who", "my", "your", "his", "her", "its", "our",
+    "their", "sleep", "heart", "rate", "deep", "stages", "stress", "recovery", "training",
+    "affect", "improve", "work", "night", "watch", "battery",
+}
+
+FOREIGN_DISTINCT_WORDS = {
+    # Francés
+    "comment", "puis-je", "ameliorer", "sommeil", "avec", "dans", "votre", "etre", "tres", "pourquoi",
+    # Alemán
+    "wie", "warum", "schlaf", "verbessert", "mein", "meine", "nicht", "kann", "bitte",
+    # Portugués
+    "posso", "melhorar", "meu", "sono", "voce", "nao", "qualquer",
+    # Italiano
+    "migliorare", "sonno", "perche", "nostro", "vostro",
+}
+
+
+def detect_query_language(text: str) -> tuple[str, bool]:
+    """Detecta el idioma de la consulta y valida si está permitido.
+
+    Reglas estrictas:
+    - Español ('es'): Permitido -> True (la respuesta siempre será en español).
+    - Inglés ('en'): Permitido -> True (la respuesta será en inglés).
+    - Cualquier otro idioma (francés, alemán, portugués, italiano, etc.): NO PERMITIDO -> False.
+
+    Retorna: (código_idioma, esta_permitido)
+    """
+    # 1. Marcadores directos y exclusivos de español
+    if any(ch in text for ch in ["¿", "¡", "ñ", "Ñ"]):
+        return "es", True
+
+    normalized_words = set(
+        re.findall(
+            r"\b[a-z]+\b",
+            unicodedata.normalize("NFKD", text.lower()).encode("ASCII", "ignore").decode("utf-8"),
+        )
+    )
+
+    # 2. Palabras distintivas de otros idiomas extranjeros (rechazo inmediato)
+    if normalized_words.intersection(FOREIGN_DISTINCT_WORDS):
+        return "other", False
+
+    # 3. Conteo de stopwords para consultas breves
+    es_count = len(normalized_words.intersection(SPANISH_STOPWORDS))
+    en_count = len(normalized_words.intersection(ENGLISH_STOPWORDS))
+
+    if es_count > 0 and es_count >= en_count:
+        return "es", True
+    if en_count > 0 and en_count > es_count:
+        return "en", True
+
+    # 4. Detector estadístico n-gram con langdetect
+    try:
+        detected = detect(text)
+        if detected == "es":
+            return "es", True
+        if detected == "en":
+            return "en", True
+        return detected, False
+    except Exception:
+        # Fallback predeterminado para términos técnicos breves del dominio
+        return "es", True
+
+
+# ---------------------------------------------------------------------
+# 6. MOTOR DE RERANKING HÍBRIDO (RRF + BM25 COBERTURA)
+# ---------------------------------------------------------------------
+
+
+def rerank_candidates(
+    query: str,
+    candidates: list[dict[str, Any]],
+    top_k: int = 3,
+) -> list[dict[str, Any]]:
+    """Reordena los candidatos usando Reciprocal Rank Fusion (RRF) híbrido.
+
+    Combina:
+    1. Ranking Denso (distancia coseno de ChromaDB).
+    2. Ranking Léxico (densidad de términos clave, tags de metadatos y cobertura de query).
+    3. Bonificación por correspondencia exacta de siglas y metadatos técnicos.
+
+    No realiza llamadas externas a APIs ni añade costes (ejecución < 1ms en CPU).
+    """
+    if not candidates or len(candidates) <= 1:
+        return candidates[:top_k]
+
+    # Extraer tokens significativos de la consulta
+    query_tokens = [
+        t
+        for t in re.findall(r"\b[a-zA-Z0-9áéíóúüñ]{2,}\b", query.lower())
+        if len(t) > 2 or t in {"hr", "hf", "lf", "rr"}
+    ]
+    query_set = set(query_tokens)
+
+    # 1. Ranking Denso (ordenado por distancia de menor a mayor)
+    sorted_dense = sorted(
+        range(len(candidates)),
+        key=lambda idx: float(candidates[idx].get("distance", 1.0)),
+    )
+    dense_ranks = {orig_idx: rank + 1 for rank, orig_idx in enumerate(sorted_dense)}
+
+    # 2. Ranking Léxico (BM25 / Cobertura y Tags)
+    lexical_raw: list[float] = []
+    for c in candidates:
+        doc_text = str(c.get("document", "")).lower()
+        meta = c.get("metadata", {}) or {}
+        tags = str(meta.get("tags", "")).lower()
+        doc_id = str(meta.get("document_id", "")).lower()
+        combined_text = f"{doc_id} {tags} {doc_text}"
+
+        if not query_set:
+            lexical_raw.append(0.0)
+            continue
+
+        matched_tokens = {tok for tok in query_set if tok in combined_text}
+        coverage = len(matched_tokens) / len(query_set)
+        tf = sum(combined_text.count(tok) for tok in matched_tokens)
+        tag_hits = sum(1 for tok in matched_tokens if tok in tags or tok in doc_id)
+
+        score = (coverage * 5.0) + (min(tf, 10) * 0.2) + (tag_hits * 1.0)
+        lexical_raw.append(score)
+
+    sorted_lex = sorted(
+        range(len(candidates)),
+        key=lambda idx: lexical_raw[idx],
+        reverse=True,
+    )
+    lexical_ranks = {orig_idx: rank + 1 for rank, orig_idx in enumerate(sorted_lex)}
+
+    # 3. Reciprocal Rank Fusion con bonificación léxica
+    k_constant = 60
+    scored: list[dict[str, Any]] = []
+    for idx, cand in enumerate(candidates):
+        r_dense = dense_ranks[idx]
+        r_lex = lexical_ranks[idx]
+        rrf = (0.55 / (k_constant + r_dense)) + (0.45 / (k_constant + r_lex))
+        cov_bonus = (lexical_raw[idx] / 10.0) * 0.005
+        final_score = rrf + cov_bonus
+
+        item = dict(cand)
+        item["rerank_score"] = round(final_score, 6)
+        scored.append(item)
+
+    scored.sort(key=lambda x: x["rerank_score"], reverse=True)
+    return scored[:top_k]

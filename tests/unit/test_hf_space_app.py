@@ -7,13 +7,14 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from deploy.hf_chroma_space.app import app
+from deploy.hf_chroma_space.app import app, get_chroma_collection
 
 
 def test_hf_space_api_endpoints() -> None:
     """Valida los endpoints raíz, health, upsert, stats y query de la API de Space."""
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch.dict("os.environ", {"CHROMA_PERSIST_DIRECTORY": tmpdir}):
+            get_chroma_collection(force_reload=True)
             client = TestClient(app)
 
             # 1. Root
@@ -145,6 +146,7 @@ def test_hf_space_ask_in_domain_success() -> None:
     """Debe procesar la consulta válida, recuperar de Chroma y sintetizar con Gemini."""
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch.dict("os.environ", {"CHROMA_PERSIST_DIRECTORY": tmpdir}):
+            get_chroma_collection(force_reload=True)
             client = TestClient(app)
 
             # Insertar chunk de prueba en Chroma
@@ -156,7 +158,12 @@ def test_hf_space_ask_in_domain_success() -> None:
                     "documents": [
                         "Firstbeat: El rMSSD refleja la actividad parasimpática y el descanso."
                     ],
-                    "metadatas": [{"document_id": "firstbeat_hrv_guide", "source": "firstbeat"}],
+                    "metadatas": [
+                        {
+                            "document_id": "firstbeat_hrv_guide",
+                            "source": "variables_fisiologia_humana",
+                        }
+                    ],
                 },
             )
 
@@ -188,7 +195,7 @@ def test_hf_space_ask_in_domain_success() -> None:
                 assert data["domain_similarity"] == 1.0
                 assert len(data["sources"]) == 1
                 assert data["sources"][0]["document_id"] == "firstbeat_hrv_guide"
-                assert data["sources"][0]["source"] == "firstbeat"
+                assert data["sources"][0]["source"] == "variables_fisiologia_humana"
                 assert data["budget_usage"] is not None
                 assert "hour_used" in data["budget_usage"]
                 mock_llm.assert_called_once()
@@ -212,3 +219,137 @@ def test_hf_space_ask_llm_budget_exhaustion() -> None:
         )
         assert resp.status_code == 429
         assert "Límite horario" in resp.json()["detail"]
+
+
+def test_hf_space_ask_unsupported_language_guardrail() -> None:
+    """Debe rechazar consultas en idiomas no permitidos (ej. francés) sin consumir presupuesto LLM."""
+    client = TestClient(app)
+    with patch("deploy.hf_chroma_space.app.call_gemini_llm") as mock_llm:
+        resp = client.post(
+            "/ask",
+            json={
+                "query": "Comment puis-je améliorer mon sommeil avec Garmin?",
+                "top_k": 3,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "unsupported_language"
+        assert data["guardrail_status"] == "language_rejected"
+        assert "Idioma no permitido" in data["answer"]
+        assert len(data["sources"]) == 0
+        mock_llm.assert_not_called()
+
+
+def test_hf_space_ask_english_query_flow() -> None:
+    """Debe permitir consultas en inglés e instruir respuesta en inglés al LLM."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch.dict("os.environ", {"CHROMA_PERSIST_DIRECTORY": tmpdir}):
+            get_chroma_collection(force_reload=True)
+            client = TestClient(app)
+
+            client.post(
+                "/upsert",
+                json={
+                    "ids": ["device_chunk_01"],
+                    "embeddings": [[0.5, 0.5] * 384],
+                    "documents": [
+                        "Garmin Elevate v5 optical heart rate sensor uses multiple green and IR diodes."
+                    ],
+                    "metadatas": [
+                        {
+                            "document_id": "elevate_v5_whitepaper",
+                            "source": "dispositivos_garmin_sensores",
+                        }
+                    ],
+                },
+            )
+
+            mock_emb = [0.5, 0.5] * 384
+            with (
+                patch("deploy.hf_chroma_space.app.get_query_embedding", return_value=mock_emb),
+                patch(
+                    "deploy.hf_chroma_space.app.get_domain_reference_embedding",
+                    return_value=mock_emb,
+                ),
+                patch(
+                    "deploy.hf_chroma_space.app.call_gemini_llm",
+                    return_value="Garmin Elevate v5 improves optical PPG accuracy with multi-channel sensors.",
+                ) as mock_llm,
+            ):
+                resp = client.post(
+                    "/ask",
+                    json={
+                        "query": "How does the Garmin Elevate v5 optical sensor improve accuracy?",
+                        "top_k": 3,
+                    },
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "success"
+                assert "Elevate v5" in data["answer"]
+                mock_llm.assert_called_once()
+                # Verificar que el system prompt contenía la instrucción de responder en inglés
+                call_args = mock_llm.call_args[1]
+                assert "Language Requirement: The user asked in English." in call_args["system_prompt"]
+
+
+def test_hf_space_ask_source_filtering_restriction() -> None:
+    """Debe restringir la búsqueda a 'variables_fisiologia_humana' y 'dispositivos_garmin_sensores', ignorando 'descripciones_metricas_garmin'."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch.dict("os.environ", {"CHROMA_PERSIST_DIRECTORY": tmpdir}):
+            get_chroma_collection(force_reload=True)
+            client = TestClient(app)
+
+            # Insertar 1 chunk en descripciones_metricas_garmin y 1 en variables_fisiologia_humana
+            client.post(
+                "/upsert",
+                json={
+                    "ids": ["meta_chunk_01", "physio_chunk_01"],
+                    "embeddings": [[0.5, 0.5] * 384, [0.5, 0.5] * 384],
+                    "documents": [
+                        "Definición compacta de métrica: rMSSD en sleep.json es un entero.",
+                        "Estudio clínico: rMSSD mide la actividad parasimpática y la recuperación cardiovascular.",
+                    ],
+                    "metadatas": [
+                        {
+                            "document_id": "metric_lookup",
+                            "source": "descripciones_metricas_garmin",
+                        },
+                        {
+                            "document_id": "firstbeat_hrv",
+                            "source": "variables_fisiologia_humana",
+                        },
+                    ],
+                },
+            )
+
+            mock_emb = [0.5, 0.5] * 384
+            with (
+                patch("deploy.hf_chroma_space.app.get_query_embedding", return_value=mock_emb),
+                patch(
+                    "deploy.hf_chroma_space.app.get_domain_reference_embedding",
+                    return_value=mock_emb,
+                ),
+                patch(
+                    "deploy.hf_chroma_space.app.call_gemini_llm",
+                    return_value="La variabilidad rMSSD indica recuperación.",
+                ),
+            ):
+                resp = client.post(
+                    "/ask",
+                    json={
+                        "query": "¿Qué significa tener el rMSSD alto y cómo se relaciona con el estrés?",
+                        "top_k": 5,
+                    },
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "success"
+                # Solo debe haber recuperado de variables_fisiologia_humana, no de descripciones_metricas_garmin
+                for src in data["sources"]:
+                    assert src["source"] in [
+                        "variables_fisiologia_humana",
+                        "dispositivos_garmin_sensores",
+                    ]
+                    assert src["source"] != "descripciones_metricas_garmin"

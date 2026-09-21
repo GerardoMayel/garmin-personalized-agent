@@ -80,15 +80,31 @@ El proyecto cuenta con sus componentes fundamentales activos, probados y despleg
 
 ---
 
-## 📚 Base de Conocimiento RAG (Fase 1: Chunking y Parquet)
+## 📚 Base de Conocimiento RAG & Motor de Inferencia
 
-El sistema de recuperación aumentada por generación estructura el conocimiento en 3 fuentes independientes para evitar contaminación de contexto entre especificaciones de hardware y biología humana:
+El sistema de recuperación aumentada por generación (RAG) organiza el conocimiento biomédico y técnico en **3 fuentes estructuradas e independientes**, asegurando una clara separación semántica entre biología humana, ingeniería de dispositivos y esquemas de datos:
 
-| Fuente | Naturaleza | Ubicación Local | Destino en R2 |
-| :--- | :--- | :--- | :--- |
-| **`dispositivos_garmin_sensores`** | 15 White papers sobre sensores ópticos PPG Elevate, DSP y acelerometría Garmin | `data/knowledge_base/firstbeat/dispositivos_garmin_sensores/` | `knowledge_base/firstbeat/dispositivos_garmin_sensores/` |
-| **`variables_fisiologia_humana`** | 15 White papers sobre sistema nervioso autónomo, HRV (rMSSD), EPOC y sueño | `data/knowledge_base/firstbeat/variables_fisiologia_humana/` | `knowledge_base/firstbeat/variables_fisiologia_humana/` |
-| **`descripciones_metricas_garmin`** | Glosario oficial de métricas de telemetría y códigos de feedback de Garmin Connect | `data/knowledge_base/descripciones_metricas_garmin/` | `knowledge_base/descripciones_metricas_garmin/` |
+| Fuente | Chunks | Alcance Temático & Evidencia Científica | Rol en el Sistema RAG |
+| :--- | :---: | :--- | :--- |
+| **`variables_fisiologia_humana`** | **423** | **Fisiología y Biometría Humana**: Dinámica del Sistema Nervioso Autónomo (SNA), equilibrio simpático/parasimpático, variabilidad de frecuencia cardíaca (VFC / HRV: métricas rMSSD, SDNN, LF/HF), arquitectura y fases del sueño (NREM, REM, sueño profundo de ondas lentas), consumo máximo de oxígeno (VO2 Max), cinéticas de lactato, exceso de consumo de oxígeno post-ejercicio (EPOC) y mecanismos biológicos de recuperación y sobreentrenamiento. | **Fuente Activa en `/ask`** (Base científica para responder preguntas fisiológicas del usuario). |
+| **`dispositivos_garmin_sensores`** | **268** | **Dispositivos, Sensores y Algoritmos Garmin**: Especificaciones de hardware y sensórica óptica PPG (Garmin Elevate v4 y v5 de múltiples canales LED), pulsioximetría PulseOx (SpO2), acelerometría triaxial, altimetría barométrica, GPS multibanda y algoritmos Firstbeat Analytics licenciados por Garmin (cálculo de Body Battery, Sleep Score, Training Readiness, Training Status, Training Effect aeróbico/anaeróbico, Stamina en tiempo real y HRV Status nocturno). | **Fuente Activa en `/ask`** (Base técnica para explicar cómo los sensores y algoritmos calculan las métricas). |
+| **`descripciones_metricas_garmin`** | **11** | **Glosario y Esquemas de Telemetría Garmin Connect**: Catálogo técnico con definiciones formales, tipos de datos, unidades de medida y semántica exacta de las variables extraídas de las APIs y esquemas JSON (`sleep.json`, `stress.json`, `daily_summary.json`, etc.). | **Fuente de Metadatos & Lookup** (Reservada para validación y enriquecimiento de esquemas; **excluida deliberadamente** de `/ask` para priorizar la profundidad fisiológica y de sensores). |
+
+### 🎯 Restricción de Alcance en el RAG (`/ask`)
+El endpoint generativo `/ask` aplica un filtro estricto a nivel de ChromaDB (`where={"source": {"$in": ["variables_fisiologia_humana", "dispositivos_garmin_sensores"]}}`). Esto garantiza que la generación de respuestas por parte del LLM esté fundamentada **únicamente en evidencia científica de fisiología y especificaciones técnicas de sensores**, evitando respuestas triviales o superficiales basadas en simples glosarios.
+
+### ⚡ Motor de Reranking Híbrido (Reciprocal Rank Fusion)
+Para seleccionar los fragmentos más relevantes y pedagógicos para el LLM:
+1. **Recuperación Expandida**: Se recupera un grupo inicial de candidatos (`top_k * 3`, mínimo 10) desde ChromaDB mediante búsqueda vectorial densa (cosine distance).
+2. **Scoring Léxico BM25 & Cobertura**: Se evalúa la densidad de palabras clave, la presencia de acrónimos técnicos (`rMSSD`, `SpO2`, `VO2Max`, `Elevate`) y la coincidencia con las etiquetas (`tags`) de los metadatos.
+3. **Fusión Reciprocal Rank (RRF $k=60$)**: Se combinan los rangos denso y léxico con bonificación por cobertura:
+   $$\text{Score}(d) = \frac{0.55}{60 + \text{Rank}_{\text{denso}}(d)} + \frac{0.45}{60 + \text{Rank}_{\text{léxico}}(d)} + \text{Bonus}_{\text{cobertura}}$$
+4. **Cero Latencia y Cero Coste**: Ejecutado 100% en memoria en CPU (< 1 ms), sin consumir llamadas a APIs externas.
+
+### 🌐 Política Estricta de Idiomas
+- **Español (`es`)**: Idioma predeterminado del asistente. Las consultas en español siempre se responden en español con rigor técnico y pedagógico.
+- **Inglés (`en`)**: Si el usuario formula su consulta en inglés, el asistente detecta el idioma e instruye al LLM a responder íntegramente en inglés.
+- **Otros Idiomas NO Permitidos**: Consultas en francés, alemán, italiano, portugués u otros idiomas son interceptadas inmediatamente por el guardrail y rechazadas con estado `unsupported_language` **sin realizar llamadas al LLM**, protegiendo el presupuesto de API.
 
 ### Pipeline de Chunking y Metadatos
 - **Segmentación**: `RecursiveCharacterTextSplitter.from_tiktoken_encoder` con `chunk_size=400` y `chunk_overlap=160` tokens.
