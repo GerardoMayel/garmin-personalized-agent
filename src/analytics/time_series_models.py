@@ -117,15 +117,15 @@ def compute_physiological_bounds(
             cap = floor + 15.0
 
     elif metric_name == "daily_avg_stress":
-        # Autonomic stress: Empirical baseline bounds around mu +/- 1.5 sigma to 2.0 sigma
-        # User's empirical telemetry ranges between 20 and 35. Bounded within low-stress envelope.
+        # Autonomic stress: Empirical baseline bounds around mu +/- 1.5 sigma
+        # Athlete's empirical telemetry ranges between 20 and 36, centering organically around ~26-29.
         obs_mean = float(np.mean(valid))
         obs_std = float(np.std(valid)) if len(valid) > 1 else 3.0
         if np.isnan(obs_std) or obs_std <= 0:
             obs_std = 3.0
 
-        floor = max(10.0, min(obs_min - 2.0, obs_mean - 1.5 * obs_std))
-        cap = min(38.0, max(obs_max + 2.0, obs_mean + 1.5 * obs_std))
+        floor = max(18.0, min(obs_min, round(obs_mean - 1.5 * obs_std, 1)))
+        cap = min(38.0, max(obs_max, round(obs_mean + 1.5 * obs_std, 1)))
         if cap - floor < 6.0:
             cap = min(40.0, floor + 8.0)
 
@@ -347,8 +347,12 @@ class GarminProphetForecaster:
                 f"Prophet: Disabled weekly seasonality for '{target_col}' (observations={len(p_df)} < 14)."
             )
 
+        effective_growth = (
+            "flat" if target_col == "daily_avg_stress" and self.growth == "logistic" else self.growth
+        )
+
         self.model = Prophet(
-            growth=self.growth,
+            growth=effective_growth,
             changepoint_prior_scale=self.changepoint_prior_scale,
             seasonality_prior_scale=self.seasonality_prior_scale,
             weekly_seasonality=effective_weekly,
@@ -362,7 +366,7 @@ class GarminProphetForecaster:
         self.model.fit(p_df)
         self.is_fitted = True
         logger.info(
-            f"Prophet forecaster fitted for target '{target_col}' (growth={self.growth}, "
+            f"Prophet forecaster fitted for target '{target_col}' (growth={effective_growth}, "
             f"bounds={self.bounds}, anomalies_masked={len(self.masked_anomalies_)})."
         )
         return self
@@ -501,11 +505,13 @@ class HoltWintersForecaster:
         # Weekly seasonality if >= 14 observations
         seasonal = "add" if len(y_clean) >= 14 else None
         seasonal_periods = 7 if seasonal else None
+        trend = None if target_col == "daily_avg_stress" else "add"
+        damped = self.damped_trend if trend is not None else False
 
         self.model = ExponentialSmoothing(
             y_clean,
-            trend="add",
-            damped_trend=self.damped_trend,
+            trend=trend,
+            damped_trend=damped,
             seasonal=seasonal,
             seasonal_periods=seasonal_periods,
             initialization_method="estimated",

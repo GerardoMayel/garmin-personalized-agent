@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -218,33 +219,32 @@ class GarminDVCManager:
         return df_merged
 
     def update_clean_dataset(self) -> pd.DataFrame:
-        """Extract current database records and perform an append-only merge on DVC table.
+        """Extract current database records and perform a clean upsert merge on DVC table.
 
-        Existing dates are preserved and new dates are seamlessly appended.
+        Enforces 'día vencido' (< today) and ensures reconciled values replace stale/partial records.
         """
+        today_str = date.today().isoformat()
         extracted_df = self.extract_clean_dataframe()
+        extracted_df = extracted_df[extracted_df["calendar_date"].astype(str) < today_str]
+
         parquet_path = self.dvc_dir / "garmin_clean_features.parquet"
         csv_path = self.dvc_dir / "garmin_clean_features.csv"
 
         if parquet_path.exists():
             existing_df = pd.read_parquet(parquet_path)
-            existing_dates = set(existing_df["calendar_date"].astype(str))
-            new_rows = extracted_df[~extracted_df["calendar_date"].astype(str).isin(existing_dates)]
-
-            if not new_rows.empty:
-                combined = (
-                    pd.concat([existing_df, new_rows], ignore_index=True)
-                    .sort_values("calendar_date")
-                    .reset_index(drop=True)
-                )
-                logger.info(
-                    f"DVC: Appended {len(new_rows)} new dates to clean dataset. Total: {len(combined)} rows."
-                )
-            else:
-                combined = existing_df
-                logger.info(f"DVC: Dataset is up to date with {len(combined)} records.")
+            existing_df = existing_df[existing_df["calendar_date"].astype(str) < today_str]
+            # Keep older dates that might not be in extracted_df, but let extracted_df take precedence
+            existing_unmatched = existing_df[
+                ~existing_df["calendar_date"].astype(str).isin(extracted_df["calendar_date"].astype(str))
+            ]
+            combined = (
+                pd.concat([existing_unmatched, extracted_df], ignore_index=True)
+                .sort_values("calendar_date")
+                .reset_index(drop=True)
+            )
+            logger.info(f"DVC: Reconciled and updated clean dataset with {len(combined)} records.")
         else:
-            combined = extracted_df
+            combined = extracted_df.sort_values("calendar_date").reset_index(drop=True)
             logger.info(f"DVC: Initialized clean dataset with {len(combined)} records.")
 
         combined.to_parquet(parquet_path, index=False)

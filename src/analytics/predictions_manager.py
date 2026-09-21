@@ -230,12 +230,21 @@ class BiometricPredictionsManager:
         df_history = df_history.sort_values("calendar_date").reset_index(drop=True)
 
         latest_history_date = df_history["calendar_date"].iloc[-1].date()
-        effective_base_date = reference_date or latest_history_date
+        effective_base_date = reference_date or date.today()
 
         target_dates = get_biweekly_target_dates(effective_base_date)
         if not target_dates:
             logger.warning("No target dates computed for bi-weekly horizon.")
             return self.load_existing_predictions()
+
+        if force and self.db_path.exists():
+            import sqlite3
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "DELETE FROM biometric_forecasts WHERE target_date >= ?",
+                    (str(target_dates[0]),),
+                )
 
         active_metrics = metrics or SUPPORTED_PREDICTION_METRICS
         existing_df = self.load_existing_predictions()
@@ -255,11 +264,11 @@ class BiometricPredictionsManager:
         new_records: list[dict[str, Any]] = []
         gen_date_str = str(effective_base_date)
 
-        # Horizon length in days
-        horizon_days = (target_dates[-1] - effective_base_date).days
+        # Horizon length in days relative to latest historical observation
+        horizon_days = max(len(target_dates), (target_dates[-1] - latest_history_date).days)
 
         logger.info(
-            f"Evaluating forecasts from {target_dates[0]} to {target_dates[-1]} ({len(target_dates)} dates)."
+            f"Evaluating forecasts from {target_dates[0]} to {target_dates[-1]} ({len(target_dates)} dates, horizon={horizon_days}d)."
         )
 
         for metric in active_metrics:
