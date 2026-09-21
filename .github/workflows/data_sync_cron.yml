@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       days_back:
-        description: 'Number of historical days to fetch (default: 2 for yesterday + today)'
+        description: 'Number of historical days to reconcile a día vencido (default: 15)'
         required: false
-        default: '2'
+        default: '15'
       date:
         description: 'Specific date to fetch in YYYY-MM-DD format (overrides days_back)'
         required: false
@@ -67,8 +67,8 @@ jobs:
           if [ -n "${{ github.event.inputs.date }}" ]; then
             uv run python -m src.ingestion.sync_pipeline --date "${{ github.event.inputs.date }}" --r2-sync
           else
-            DAYS="${{ github.event.inputs.days_back || '2' }}"
-            uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS" --r2-sync
+            DAYS="${{ github.event.inputs.days_back || '15' }}"
+            uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS" --reconcile --r2-sync
           fi
 
       - name: Upload Ingestion Artifacts & Logs

@@ -263,13 +263,34 @@ Descarga en 3 segundos los datos de ayer y tu última actividad para verificar c
 uv run python -m src.ingestion.sample_sync
 ```
 
-### 3. Sincronización Completa y Persistencia en SQLite
-Descarga la ventana móvil de los últimos 7 días y persiste automáticamente en `data/raw/` y `data/processed/garmin_history.db`:
+### 3. Sincronización a Día Vencido y Reconciliación Autorreparable
+El pipeline de ingestión opera bajo la estricta **regla de día vencido ($T-1$)**: Garmin Connect mantiene campos incompletos o nulos (`averageStressLevel: null`, `totalSteps: null`) durante el día en curso ($T$). Para garantizar la máxima fidelidad fisiológica:
+- **Día Vencido:** Nunca ingiere el día en curso; procesa únicamente jornadas cerradas y consolidadas ($< \text{hoy}$).
+- **Reconciliador de 15 Días:** Audita una ventana móvil de 15 días comprobando integridad de archivos raw y registros en SQLite. Si detecta ficheros ausentes o nulos debidos a ejecuciones previas parciales, los repara automáticamente descargando la telemetría oficial de Garmin.
+- **Purga de Días Incompletos:** Detecta y elimina cualquier partición o fila local o en R2 de fechas $\ge \text{hoy}$.
+
 ```bash
-uv run python -m src.ingestion.garmin_sync
+# Ejecutar reconciliación autorreparable de 15 días y respaldar en Cloudflare R2:
+uv run python -m src.ingestion.sync_pipeline --days-back 15 --reconcile --r2-sync
+
+# Forzar re-sincronización completa de toda la ventana:
+uv run python -m src.ingestion.sync_pipeline --days-back 15 --force --r2-sync
+
+# Sincronizar una fecha específica cerrada (día vencido):
+uv run python -m src.ingestion.sync_pipeline --date 2026-09-20 --r2-sync
 ```
 
-### 4. Ejecución de Tests Automatizados
+### 4. Almacenamiento en la Nube con Cloudflare R2
+Persistencia y recuperación rápida de particiones raw y base de datos histórica mediante `src.common.r2_storage`:
+```bash
+# Respaldar SQLite y particiones raw hacia Cloudflare R2:
+uv run python -m src.common.r2_storage --backup-db --sync-raw
+
+# Restaurar SQLite y particiones raw completas desde Cloudflare R2:
+uv run python -m src.common.r2_storage --restore-db --restore-raw
+```
+
+### 5. Ejecución de Tests Automatizados
 ```bash
 uv run pytest tests/unit/ -v
 ```
