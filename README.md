@@ -382,8 +382,12 @@ garmin-personalized-agent/
 │   │   ├── schemas.py
 │   │   └── vector_store.py
 │   └── training/
+│       ├── README.md
+│       ├── dataset_builder.py
+│       ├── evaluate_model.py
 │       ├── generate_synthetic_dataset.py
 │       ├── preview_few_shots.py
+│       ├── train_lora.py
 │       └── upload_to_huggingface.py
 ├── tests/
 │   └── unit/

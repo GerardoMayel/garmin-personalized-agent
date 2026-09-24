@@ -1,12 +1,21 @@
 # =====================================================================
-# LoRA / PEFT Fine-Tuning Hyperparameters
+# LoRA / PEFT Supervised Fine-Tuning Hyperparameters
+# Garmin Mexican Fitness Coach SFT
 # =====================================================================
 
 model:
-  base_model_name: "Qwen/Qwen2.5-7B-Instruct"
+  # Base models: "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-1B-Instruct", "Qwen/Qwen2.5-3B-Instruct"
+  base_model_name: "Qwen/Qwen2.5-1.5B-Instruct"
   torch_dtype: "bfloat16"
-  use_4bit_quantization: true
   trust_remote_code: true
+  use_4bit_quantization: false  # bitsandbytes 4-bit (activar en GPU CUDA; desactivar en Apple Silicon MPS / CPU)
+
+dataset:
+  local_path: "data/synthetic/synthetic_dataset_400.jsonl"
+  hf_repo_id: "GerardoMayel/garmin-mexican-fitness-coach-sft"
+  val_split_ratio: 0.1  # 90% entrenamiento (360 ejemplos), 10% validación (40 ejemplos)
+  seed: 42
+  max_seq_length: 2048
 
 lora:
   r: 16
@@ -24,7 +33,7 @@ lora:
   task_type: "CAUSAL_LM"
 
 training:
-  output_dir: "./checkpoints/lora_garmin_expert"
+  output_dir: "./checkpoints/lora_garmin_mexican_coach"
   num_train_epochs: 3
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 2
@@ -35,11 +44,10 @@ training:
   weight_decay: 0.01
   logging_steps: 10
   eval_strategy: "steps"
-  eval_steps: 50
+  eval_steps: 25
   save_strategy: "steps"
-  save_steps: 100
-  save_total_limit: 3
-  max_seq_length: 2048
+  save_steps: 50
+  save_total_limit: 2
   fp16: false
-  bf16: true
-  dataset_text_field: "messages"
+  bf16: false  # Auto-configurado según el hardware detectado (MPS/CUDA/CPU)
+  dataloader_num_workers: 0

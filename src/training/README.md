@@ -93,3 +93,37 @@ uv run python -m src.training.upload_to_huggingface --dry-run
 # Subir al repositorio oficial en Hugging Face:
 uv run python -m src.training.upload_to_huggingface
 ```
+
+### 4. `dataset_builder.py`
+Carga, valida y divide el dataset en splits deterministas de entrenamiento (90%) y validación (10%), formateándolo para su consumo directo por `TRL` o `Transformers`.
+
+```bash
+# Ver reporte de distribución y estadísticas:
+uv run python -m src.training.dataset_builder
+
+# Descargar y validar directamente desde Hugging Face Hub:
+uv run python -m src.training.dataset_builder --hub
+```
+
+### 5. `train_lora.py`
+Entrenador de ajuste fino instruccional con adaptadores LoRA / PEFT y `SFTTrainer` de `trl`. Detecta automáticamente el hardware (NVIDIA CUDA con cuantización 4-bit, Apple Silicon MPS en FP16, o CPU):
+
+```bash
+# Simular pipeline de preparación de datos y modelo (Dry-Run):
+uv run python -m src.training.train_lora --dry-run
+
+# Entrenar modelo SLM (ejemplo: Qwen 2.5 1.5B o Llama 3.2 1B):
+uv run python -m src.training.train_lora --config configs/fine_tuning_lora.yaml
+```
+
+### 6. `evaluate_model.py`
+Suite de evaluación cualitativa y cuantitativa que mide:
+1. **Cumplimiento de Estructura:** Presencia de las tres secciones obligatorias.
+2. **Marcadores de Jerga/Tono:** Presencia de modismos auténticos de coaching deportivo.
+3. **Calibración de Longitud:** Respuestas estrictamente en el rango de 200 a 350 tokens.
+
+```bash
+# Evaluar respuestas del dataset sintético:
+uv run python -m src.training.evaluate_model --file data/synthetic/synthetic_dataset_400.jsonl
+```
+
