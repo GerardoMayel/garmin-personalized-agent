@@ -43,7 +43,22 @@ def load_and_validate_few_shots(file_path: Path = DEFAULT_SEEDS_PATH) -> list[di
             assert messages[1]["role"] == "user"
             assert messages[2]["role"] == "assistant"
 
+            lang = item.get("language", "es")
             assistant_content = messages[2]["content"]
+
+            if lang == "en":
+                required_sections = [
+                    "### 1. Quick Diagnosis",
+                    "### 2. Physiological Breakdown",
+                    "### 3. Today's Work",
+                ]
+            else:
+                required_sections = [
+                    "### 1. El Diagnóstico Rápido",
+                    "### 2. La Explicación Fisiológica",
+                    "### 3. La Chamba de Hoy",
+                ]
+
             for sec in required_sections:
                 assert sec in assistant_content, f"Línea {idx} ({item.get('id')}): falta la sección obligatoria '{sec}'"
 

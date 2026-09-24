@@ -18,7 +18,7 @@ from huggingface_hub import HfApi
 
 load_dotenv()
 
-DEFAULT_DATASET_PATH = Path("data/synthetic/synthetic_dataset_450.jsonl")
+DEFAULT_DATASET_PATH = Path("data/synthetic/synthetic_dataset_400.jsonl")
 DEFAULT_REPO_NAME = "garmin-mexican-fitness-coach-sft"
 
 
@@ -27,6 +27,7 @@ def generate_dataset_card_content(repo_id: str, total_examples: int) -> str:
     return f"""---
 language:
 - es
+- en
 license: apache-2.0
 task_categories:
 - text-generation
@@ -38,6 +39,7 @@ tags:
 - fitness
 - coaching
 - mexican-spanish
+- bilingual
 - sft
 - lora
 - biometrics
@@ -54,24 +56,26 @@ configs:
 
 # 🇲🇽 Garmin Mexican Fitness Coach SFT Dataset
 
-Dataset sintético de alta fidelidad para el ajuste fino instruccional (**Supervised Fine-Tuning / LoRA**) de modelos de lenguaje pequeños (e.g., *Llama 3.2 1B/3B, Qwen 2.5 1.5B/3B, SmolLM2*), diseñado para dotarlos de la personalidad, modismos y tono enérgico de un **Coach de Alto Rendimiento Mexicano** con fundamento fisiológico estricto (**Firstbeat Technologies & Garmin Connect**).
+Dataset sintético bilingüe de alta fidelidad para el ajuste fino instruccional (**Supervised Fine-Tuning / LoRA**) de modelos de lenguaje pequeños (e.g., *Llama 3.2 1B/3B, Qwen 2.5 1.5B/3B, SmolLM2*), diseñado para dotarlos de la personalidad, modismos y tono enérgico de un **Coach de Alto Rendimiento Mexicano** con fundamento fisiológico estricto (**Firstbeat Technologies & Garmin Connect**).
 
 ---
 
 ## 📊 Resumen del Dataset
 
 - **Tamaño total:** {total_examples} ejemplos estructurados en formato **ChatML** (`system`, `user`, `assistant`).
-- **Idioma:** Español (México) con jerga fitness y modismos mexicanos auténticos (*carnal, mi rey, machín, al tiro, chamba, a reventar la barra, quemar llanta*).
+- **Idiomas & Estilo:**
+  - **Español (ES):** 50% de ejemplos con jerga fitness y modismos mexicanos auténticos (*carnal, mi rey, machín, al tiro, chamba, a reventar la barra, quemar llanta*). Rango calibrado: 240 a 360 tokens.
+  - **Inglés (EN):** 50% de ejemplos con tono de coach bilingüe/hispanoamericano (*my friend, engine, get after it, dialed in, beast mode*). Rango calibrado: 190 a 280 tokens.
 - **Métricas Biométricas Cubiertas:**
   1. `hrv_rmssd`: Variabilidad de la frecuencia cardíaca nocturna, balance autonómico simpático/parasimpático.
   2. `sleep_score`: Puntuación y arquitectura del sueño (sueño profundo N3, REM, estrés nocturno, SpO2, respiración).
   3. `daily_avg_stress`: Estrés diario promedio, horas en reposo restaurativo y carga alostática.
   4. `resting_heart_rate`: Frecuencia cardíaca en reposo basal y volumen sistólico miocárdico.
   5. `total_steps`: Pasos diarios, gasto calórico activo, zonas de frecuencia cardíaca y deuda de recuperación (EPOC).
-- **Equilibrio de Escenarios:**
-  - **Alto Rendimiento / Ejercicio Fuerte:** Récords personales (PRs), series de VO2max en pista, tempo en umbral de lactato, trail running con desnivel y circuitos metabólicos.
-  - **Base Aeróbica / Mantenimiento:** Rodajes suaves en Z2, hipertrofia submáxima controlada y consistencia metabólica.
-  - **Descarga / Fatiga / Alertas:** Desvelo severo, sobreentrenamiento, estrés laboral y marcadores tempranos de infección.
+- **Equilibrio de Escenarios (3 Tiers de Intensidad):**
+  - **Alto Rendimiento / Ejercicio Fuerte (High Intensity):** Récords personales (PRs), series de VO2max en pista, tempo en umbral de lactato, trail running con desnivel y circuitos metabólicos.
+  - **Base Aeróbica / Mantenimiento (Moderate Base):** Rodajes suaves en Z2, hipertrofia submáxima controlada y consistencia metabólica.
+  - **Descarga / Fatiga / Alertas (Recovery / Fatigue):** Desvelo severo, sobreentrenamiento, estrés laboral y marcadores tempranos de infección.
 
 ---
 

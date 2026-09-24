@@ -4,6 +4,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Storage: Cloudflare R2](https://img.shields.io/badge/Storage-Cloudflare_R2-F38020.svg)](https://www.cloudflare.com/developer-platform/r2/)
 [![Database: SQLite](https://img.shields.io/badge/Database-SQLite-003B57.svg)](https://www.sqlite.org/)
+[![Dataset: Hugging Face](https://img.shields.io/badge/Dataset-Hugging_Face-FFD21E.svg)](https://huggingface.co/datasets/GerardoMayel/garmin-mexican-fitness-coach-sft)
 [![CI](https://github.com/GerardoMayel/garmin-personalized-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/GerardoMayel/garmin-personalized-agent/actions/workflows/ci.yml)
 [![Science Sync](https://github.com/GerardoMayel/garmin-personalized-agent/actions/workflows/sync_science_papers.yml/badge.svg)](https://github.com/GerardoMayel/garmin-personalized-agent/actions/workflows/sync_science_papers.yml)
 
@@ -11,7 +12,7 @@ Sistema analítico end-to-end y arquitectura de agentes personalizados para la i
 
 ---
 
-## 📌 Estado Actual del Proyecto (Fase 1: Ingestión & Fase 2: RAG Backend en Vivo)
+## 📌 Estado Actual del Proyecto (Fase 1: Ingestión, Fase 2: RAG Backend & Fase 3/4: Dataset SFT)
 
 El proyecto cuenta con sus componentes fundamentales activos, probados y desplegados con CI/CD automatizado:
 
@@ -29,6 +30,7 @@ El proyecto cuenta con sus componentes fundamentales activos, probados y despleg
    - **Control Estricto de Idioma**: Español base (respuestas siempre en español), inglés permitido (respuestas en inglés) y rechazo inmediato de cualquier otro idioma sin coste LLM.
 6. **Automatización en GitHub Actions**: Flujos programados para sincronización diaria de telemetría, actualización de literatura científica y keep-alive de Hugging Face Spaces.
 7. **Suite de Pruebas Unitaria**: **102 tests automatizados pasando** con `pytest`, formateo con `ruff` y tipado estricto al 100% con `mypy`.
+8. **Pipeline de Datos Sintéticos & Dataset SFT en Hugging Face**: Pipeline multi-modelo de generación sintética basado en Google Gemini (`src/training/generate_synthetic_dataset.py`) con sondeo dinámico de latencias (`models_registry.json`), balanceo en 3 niveles de esfuerzo (alta intensidad, base aeróbica, recuperación/alerta) y control estricto de tokens (200-350 tokens). Publicado el dataset bilingüe (196 ES / 204 EN) de 400 pares ChatML en [Hugging Face Datasets: GerardoMayel/garmin-mexican-fitness-coach-sft](https://huggingface.co/datasets/GerardoMayel/garmin-mexican-fitness-coach-sft) para Supervised Fine-Tuning (SFT / LoRA).
 
 ---
 
@@ -273,6 +275,43 @@ tools = [get_garmin_actuals_tool, get_garmin_forecasts_tool]
 
 ---
 
+## 🤖 Pipeline de Datos Sintéticos & Dataset SFT (Hugging Face)
+
+Para dotar a modelos de lenguaje pequeños (e.g., *Llama 3.2 1B/3B, Qwen 2.5 1.5B/3B, SmolLM2*) del tono, modismos, energía y cadencia de un **Coach de Alto Rendimiento Mexicano** fundamentado rigurosamente en la ciencia biomédica de Firstbeat Analytics y en la telemetría de Garmin Connect, se diseñó un pipeline de generación y curaduría de datos sintéticos:
+
+- **Dataset Oficial en Hugging Face**: [🤗 GerardoMayel/garmin-mexican-fitness-coach-sft](https://huggingface.co/datasets/GerardoMayel/garmin-mexican-fitness-coach-sft)
+- **Formato**: ChatML nativo (`messages`: `system`, `user`, `assistant`).
+- **Volumen Total**: 400 ejemplos de alta fidelidad curados (`data/synthetic/synthetic_dataset_400.jsonl`).
+- **Distribución Bilingüe**:
+  - **Español (ES - 196 ejemplos):** Vocabulario de entrenamiento mexicano (*carnal, mi rey, machín, al tiro, chamba, paliza, a reventar la barra*), calibrado entre 240 y 360 tokens (150-220 palabras).
+  - **Inglés (EN - 204 ejemplos):** Energía de coach hispanoamericano bilingüe (*my friend, engine, get after it, dialed in, beast mode*), calibrado entre 190 y 280 tokens (150-220 palabras).
+- **Equilibrio de Esfuerzo Fisiológico (3 Tiers de Intensidad):**
+  1. **Alta Intensidad & Rendimiento Pico (`high_intensity`, 134 ejemplos):** Series de VO2max en pista (6x800m), récords personales (PRs) de sentadilla pesada, tempo en umbral de lactato, trail running con desnivel positivo (+1,000m) y circuitos funcionales de alta demanda metabólica.
+  2. **Base Aeróbica & Consistencia (`moderate_base`, 128 ejemplos):** Rodajes suaves en Zona 2, hipertrofia submáxima controlada, tempo aeróbico y acumulación de volumen mitocondrial.
+  3. **Descarga, Fatiga & Alertas Médicas (`recovery_fatigue`, 138 ejemplos):** Desvelo agudo, marcadores de sobreentrenamiento (HRV deprimida, RHR elevado), estrés alostático elevado y detección temprana de procesos infecciosos.
+
+### 🏛️ Arquitectura de Respuesta en 3 Secciones Obligatorias
+Cada turno del asistente sigue una estructura didáctica y clínica inmutable:
+1. `### 1. El Diagnóstico Rápido` / `### 1. Quick Diagnosis`: Evaluación empática y directa del estado del atleta a partir de su telemetría.
+2. `### 2. La Explicación Fisiológica (Lo que dice la ciencia)` / `### 2. Physiological Breakdown (What Science Says)`: Argumentación con base en literatura médica de Firstbeat (tono vagal rMSSD, aclaramiento de lactato, síntesis miofibrilar en ondas lentas, EPOC).
+3. `### 3. La Chamba de Hoy (Plan de Acción)` / `### 3. Today's Work (Action Plan)`: Prescripción operativa de 4 a 5 puntos concretos (ritmos, descansos, técnica, nutrición peri-entrenamiento y sueño).
+
+### 🛠️ Componentes y Scripts de Entrenamiento (`src/training/`)
+- **`src/training/generate_synthetic_dataset.py`**: Generador por bloques con selección dinámica de modelos Gemini (`gemini-flash-lite-latest`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`), sondeo y registro de latencias en `data/synthetic/models_registry.json`, auto-reparación de JSON truncado, checkpointing incremental y rate-limiting configurable.
+- **`src/training/upload_to_huggingface.py`**: Publicador automatizado que sincroniza el dataset `train.jsonl` hacia Hugging Face Hub y genera el Dataset Card profesional con metadatos YAML y plantilla de entrenamiento con TRL (`SFTTrainer`).
+- **`src/training/preview_few_shots.py`**: Inspector y validador de sintaxis, reglas de longitud y modismos de las semillas de few-shots (`data/synthetic/seed_few_shots.jsonl`).
+
+```python
+# Carga directa del dataset desde Hugging Face para Fine-Tuning:
+from datasets import load_dataset
+
+dataset = load_dataset("GerardoMayel/garmin-mexican-fitness-coach-sft", split="train")
+print(f"Total ejemplos: {len(dataset)}")  # 400 ejemplos
+print(dataset[0]["messages"])
+```
+
+---
+
 ## ☁️ Almacenamiento en Cloudflare R2
 
 El cliente `src/common/r2_storage.py` gestiona la sincronización remota contra Cloudflare R2:
@@ -301,7 +340,11 @@ garmin-personalized-agent/
 │   │   │   ├── dispositivos_garmin_sensores/
 │   │   │   └── variables_fisiologia_humana/
 │   │   └── processed_chunks/
-│   └── raw/
+│   ├── raw/
+│   └── synthetic/
+│       ├── models_registry.json
+│       ├── seed_few_shots.jsonl
+│       └── synthetic_dataset_400.jsonl
 ├── deploy/
 │   └── hf_chroma_space/
 │       ├── Dockerfile
@@ -328,17 +371,20 @@ garmin-personalized-agent/
 │   │   ├── sync_garmin_device_papers.py
 │   │   ├── sync_human_physiology_papers.py
 │   │   └── sync_garmin_metric_descriptions.py
-│   └── rag/
-│       ├── README.md
-│       ├── embeddings.py
-│       ├── guardrails.py
-│       ├── index_to_chroma.py
-│       ├── language_detector.py
-│       ├── ledger.py
-│       ├── loader_and_chunker.py
-│       ├── reranker.py
-│       ├── schemas.py
-│       └── vector_store.py
+│   ├── rag/
+│   │   ├── embeddings.py
+│   │   ├── guardrails.py
+│   │   ├── index_to_chroma.py
+│   │   ├── language_detector.py
+│   │   ├── ledger.py
+│   │   ├── loader_and_chunker.py
+│   │   ├── reranker.py
+│   │   ├── schemas.py
+│   │   └── vector_store.py
+│   └── training/
+│       ├── generate_synthetic_dataset.py
+│       ├── preview_few_shots.py
+│       └── upload_to_huggingface.py
 ├── tests/
 │   └── unit/
 ├── .env.example
@@ -352,12 +398,13 @@ garmin-personalized-agent/
 | Directorio / Módulo | Responsabilidad Principal |
 | :--- | :--- |
 | **`.github/workflows/`** | Automatizaciones CI/CD: verificación (`ci.yml`), sincronización diaria (`data_sync_cron.yml`), pipeline mensual RAG (`sync_science_papers.yml`) y keep-alive de HF Space (`ping_hf_space.yml`). |
-| **`data/`** | Capa de persistencia: base SQLite relacional (`garmin_personal.db`), snapshots JSON (`raw/`) y base de conocimiento científica (`knowledge_base/`). |
+| **`data/`** | Capa de persistencia: base SQLite relacional (`garmin_personal.db`), snapshots JSON (`raw/`), base de conocimiento científica (`knowledge_base/`) y datasets sintéticos ChatML (`data/synthetic/`). |
 | **`deploy/hf_chroma_space/`** | Backend FastAPI containerizado para Hugging Face Spaces (Docker SDK, Private) con colección unificada `biometric_knowledge_base`, guardrails multicapa y presupuesto LLM. |
 | **`src/analytics/`** | Machine Learning y series de tiempo: descomposición temporal, modelos ARIMA/Prophet/Holt-Winters, detección de anomalías (Isolation Forest) y causalidad de Granger. |
 | **`src/common/`** | Infraestructura base: gestor SQLite (`database.py`), cliente Cloudflare R2 (`r2_storage.py`) y logging con Loguru (`logger.py`). |
 | **`src/ingestion/`** | Clientes de ingestión: API de Garmin Connect y descargadores de literatura Firstbeat y glosario de métricas. |
 | **`src/rag/`** | Pipeline de RAG: chunking BPE, embeddings Google Gemini (768 dims), cliente ChromaDB (Local/Remoto), guardrails NLP, filtro estricto de fuentes y motor de reranking híbrido RRF. |
+| **`src/training/`** | Pipeline de entrenamiento SFT: generador multi-modelo de datos sintéticos ChatML, sondeo de modelos Gemini, validador de semillas de few-shots y subida automatizada a Hugging Face Hub. |
 | **`tests/unit/`** | Suite completa de 102 pruebas unitarias automatizadas con `pytest`. |
 
 
@@ -464,7 +511,7 @@ uv run python deploy/hf_chroma_space/deploy_space.py --space tu_usuario_hf/garmi
 
 ### 9. Ejecución de Tests y Verificación de Código
 ```bash
-# Ejecutar suite de 102 tests unitarios
+# Ejecutar suite de tests unitarios
 uv run pytest
 
 # Verificación de linter y formateo
@@ -475,6 +522,32 @@ uv run ruff format --check .
 uv run mypy src tests
 ```
 
+### 10. Validación y Previsualización de Semillas Few-Shot
+Valida el esquema ChatML, las tres secciones obligatorias y las restricciones de longitud (200-350 tokens) de las semillas bilingües:
+```bash
+uv run python -m src.training.preview_few_shots
+```
+
+### 11. Generación de Dataset Sintético Multi-Modelo
+Ejecuta la generación por bloques balanceados (alta intensidad, base aeróbica, recuperación) rotando dinámicamente entre modelos Gemini:
+```bash
+# Generación por bloques de 25 ejemplos hasta alcanzar la meta de 400:
+uv run python -m src.training.generate_synthetic_dataset --target 400 --block-size 25
+
+# O especificar un modelo específico de la API de Gemini:
+uv run python -m src.training.generate_synthetic_dataset --model gemini-flash-lite-latest --block-size 20
+```
+
+### 12. Publicación del Dataset a Hugging Face Hub
+Sube automáticamente el archivo `train.jsonl` junto a la ficha técnica (Dataset Card) a tu cuenta de Hugging Face:
+```bash
+# Simulación previa (Dry-Run):
+uv run python -m src.training.upload_to_huggingface --dry-run
+
+# Publicación oficial en Hugging Face Datasets:
+uv run python -m src.training.upload_to_huggingface
+```
+
 ---
 
 ## 🗺️ Hoja de Ruta (Siguientes Fases)
@@ -483,5 +556,7 @@ uv run mypy src tests
 - [x] **Fase 1**: Ingestión de literatura Firstbeat (3 fuentes), glosario de métricas, chunker BPE de 400 tokens, esquemas Parquet, reconciliación con DocumentLedger y CI/CD mensual en GitHub Actions.
 - [x] **Fase 2**: Generación de Embeddings Densos con Google Gemini (768-dim), Backend Vectorial ChromaDB en Hugging Face Spaces (Docker), pipeline de indexación batch y Keep-Alive automatizado.
 - [x] **Fase 3**: Recuperador Híbrido (Dense Semantic + BM25 Lexical con Reranker RRF), Guardrails Multicapa NLP, Filtro Estricto de Idioma (Español/Inglés) y Control de Presupuesto LLM.
-- [ ] **Fase 4**: Agente de Razonamiento Fisiológico con LangGraph y Dashboard interactivo en Streamlit.
+- [x] **Fase 4**: Pipeline de Datos Sintéticos Multi-Modelo y Dataset SFT Bilingüe publicado en Hugging Face ([GerardoMayel/garmin-mexican-fitness-coach-sft](https://huggingface.co/datasets/GerardoMayel/garmin-mexican-fitness-coach-sft)).
+- [ ] **Fase 5**: Fine-Tuning LoRA / QLoRA de modelos SLM (Llama 3.2 1B/3B, Qwen 2.5 1.5B/3B) y evaluación cuantitativa de perplejidad y retención de formato.
+- [ ] **Fase 6**: Agente de Razonamiento Fisiológico con LangGraph y Dashboard interactivo en Streamlit.
 

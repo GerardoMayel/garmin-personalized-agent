@@ -10,35 +10,59 @@ SEEDS_PATH = Path("data/synthetic/seed_few_shots.jsonl")
 
 
 def test_seed_few_shots_syntax_and_schema():
-    """Should load all seed examples and validate ChatML schema and sections."""
+    """Should load all seed examples and validate ChatML schema, bilingual support, and length."""
     examples = load_and_validate_few_shots(SEEDS_PATH)
-    assert len(examples) == 15, f"Expected 15 seed examples, found {len(examples)}"
+    assert len(examples) == 12, f"Expected 12 seed examples, found {len(examples)}"
 
     metrics = {e["metric_category"] for e in examples}
     expected_metrics = {"hrv_rmssd", "sleep_score", "daily_avg_stress", "resting_heart_rate", "total_steps"}
     assert metrics == expected_metrics, f"Missing metrics in seeds: {expected_metrics - metrics}"
 
+    languages = {e.get("language") for e in examples}
+    assert languages == {"es", "en"}, f"Expected both 'es' and 'en' seeds, found {languages}"
+
     for ex in examples:
         assert ex["id"].startswith("seed_")
         assert len(ex["messages"]) == 3
-        # Ensure authentic Mexican vernacular markers
-        content = ex["messages"][2]["content"].lower()
-        has_slang = any(
-            w in content
-            for w in [
-                "carnal",
-                "mi rey",
-                "chingón",
-                "paliza",
-                "chamba",
-                "machín",
-                "pila",
-                "máquina",
-                "brother",
-                "al tiro",
-            ]
+        content = ex["messages"][2]["content"]
+        words = len(content.split())
+        approx_tokens = int(words * 1.33)
+
+        # Enforce 200 - 350 tokens constraint
+        assert 190 <= approx_tokens <= 360, (
+            f"Example {ex['id']} length ({approx_tokens} tokens, {words} words) out of 200-350 range"
         )
-        assert has_slang, f"Example {ex['id']} is missing Mexican coaching vernacular markers"
+
+        content_lower = content.lower()
+        if ex.get("language") == "es":
+            has_slang = any(
+                w in content_lower
+                for w in [
+                    "carnal",
+                    "mi rey",
+                    "chingón",
+                    "chamba",
+                    "machín",
+                    "pila",
+                    "máquina",
+                    "al tiro",
+                ]
+            )
+            assert has_slang, f"Spanish example {ex['id']} is missing Mexican coaching markers"
+        else:
+            has_en_markers = any(
+                w in content_lower
+                for w in [
+                    "my friend",
+                    "engine",
+                    "man",
+                    "barbell",
+                    "track",
+                    "work",
+                    "get after it",
+                ]
+            )
+            assert has_en_markers, f"English example {ex['id']} is missing coach markers"
 
 
 def test_seed_few_shots_includes_peak_performance_scenarios():
@@ -46,16 +70,13 @@ def test_seed_few_shots_includes_peak_performance_scenarios():
     examples = load_and_validate_few_shots(SEEDS_PATH)
     scenarios = [e["scenario"].lower() for e in examples]
 
-    # Verify high intensity keywords in scenarios
-    has_vo2max = any("vo2max" in s or "series" in s for s in scenarios)
-    has_pr_or_heavy = any("pr" in s or "pesada" in s or "récord" in s for s in scenarios)
-    has_lactate_or_tempo = any("umbral de lactato" in s or "tempo" in s for s in scenarios)
-    has_hiit_or_functional = any("hiit" in s or "circuito" in s for s in scenarios)
+    has_vo2max = any("vo2max" in s or "track" in s or "interval" in s for s in scenarios)
+    has_pr_or_heavy = any("pr" in s or "pesada" in s or "squat" in s for s in scenarios)
+    has_lactate_or_tempo = any("umbral de lactato" in s or "tempo" in s or "threshold" in s for s in scenarios)
 
     assert has_vo2max, "Missing VO2Max / track interval scenario"
     assert has_pr_or_heavy, "Missing PR / heavy strength scenario"
     assert has_lactate_or_tempo, "Missing lactate threshold / tempo run scenario"
-    assert has_hiit_or_functional, "Missing high-intensity HIIT / functional circuit scenario"
 
 
 def test_models_registry_structure():

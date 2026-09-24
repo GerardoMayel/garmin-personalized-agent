@@ -3,12 +3,14 @@ garmin-personal-insight-agent/
 │   └── workflows/
 │       ├── cd.yml
 │       ├── ci.yml
-│       └── data_sync_cron.yml
+│       ├── data_sync_cron.yml
+│       └── sync_science_papers.yml
 │
 ├── deploy/
 │   ├── docker/
 │   │   ├── Dockerfile.api
 │   │   └── Dockerfile.ui
+│   ├── hf_chroma_space/
 │   ├── k8s/
 │   │   ├── deployment-api.yaml
 │   │   ├── deployment-ui.yaml
@@ -22,17 +24,49 @@ garmin-personal-insight-agent/
 │   └── rag_settings.yaml
 │
 ├── data/
+│   ├── artifacts/
+│   │   ├── models/
+│   │   │   ├── active_kilocalories_ensemble.joblib
+│   │   │   ├── daily_avg_stress_ensemble.joblib
+│   │   │   ├── fitness_age_ensemble.joblib
+│   │   │   ├── fitness_age_gap_ensemble.joblib
+│   │   │   ├── gym_avg_hr_ensemble.joblib
+│   │   │   ├── hrv_rmssd_ensemble.joblib
+│   │   │   ├── models_registry.json
+│   │   │   ├── resting_heart_rate_ensemble.joblib
+│   │   │   ├── resting_kilocalories_ensemble.joblib
+│   │   │   ├── running_avg_hr_ensemble.joblib
+│   │   │   ├── sleep_score_ensemble.joblib
+│   │   │   ├── total_kilocalories_ensemble.joblib
+│   │   │   ├── total_sleep_hours_ensemble.joblib
+│   │   │   ├── total_steps_ensemble.joblib
+│   │   │   └── walking_avg_hr_ensemble.joblib
+│   │   ├── imputation_metadata.json
+│   │   └── imputation_pipeline.joblib
+│   ├── dvc/
+│   │   ├── garmin_clean_features.csv
+│   │   └── garmin_clean_features.parquet
 │   ├── knowledge_base/
 │   ├── multimodal/
 │   ├── processed/
 │   ├── raw/
-│   └── training/
+│   ├── synthetic/
+│   │   ├── models_registry.json
+│   │   ├── seed_few_shots.jsonl
+│   │   └── synthetic_dataset_400.jsonl
+│   ├── training/
+│   └── garmin_personal.db
 │
 ├── notebooks/
 │   ├── 01_garmin_data_exploration.ipynb
+│   ├── 02.1_forecast_heart_rates.ipynb
+│   ├── 02.2_forecast_sleep.ipynb
+│   ├── 02.3_forecast_calories.ipynb
+│   ├── 02.4_forecast_steps_activity.ipynb
+│   ├── 02.5_forecast_autonomic_stress_hrv.ipynb
 │   ├── 02_time_series_causality_lab.ipynb
-│   ├── 03_rag_chunking_and_eval.ipynb
-│   └── 04_vlm_hypnogram_analysis.ipynb
+│   ├── 03_correlation_analysis.ipynb
+│   └── 04_causality_analysis.ipynb
 │
 ├── src/
 │   ├── agents/
@@ -46,6 +80,8 @@ garmin-personal-insight-agent/
 │   │   ├── __init__.py
 │   │   ├── anomaly_detection.py
 │   │   ├── causality_engine.py
+│   │   ├── dvc_manager.py
+│   │   ├── predictions_manager.py
 │   │   └── time_series_models.py
 │   ├── api/
 │   │   ├── __init__.py
@@ -62,6 +98,7 @@ garmin-personal-insight-agent/
 │   │   ├── config.py
 │   │   ├── database.py
 │   │   ├── logger.py
+│   │   ├── r2_storage.py
 │   │   └── schemas.py
 │   ├── ingestion/
 │   │   ├── __init__.py
@@ -69,18 +106,31 @@ garmin-personal-insight-agent/
 │   │   ├── garmin_client.py
 │   │   ├── garmin_sync.py
 │   │   ├── sample_sync.py
+│   │   ├── sync_garmin_device_papers.py
+│   │   ├── sync_garmin_metric_descriptions.py
+│   │   ├── sync_human_physiology_papers.py
 │   │   └── sync_pipeline.py
 │   ├── rag/
 │   │   ├── __init__.py
+│   │   ├── language_detector.py
+│   │   ├── ledger.py
 │   │   ├── loader_and_chunker.py
 │   │   ├── reranker.py
 │   │   ├── retriever.py
+│   │   ├── schemas.py
 │   │   └── vector_store.py
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   └── garmin_sql_tools.py
 │   ├── training/
 │   │   ├── __init__.py
 │   │   ├── dataset_builder.py
 │   │   ├── evaluate_model.py
-│   │   └── train_lora.py
+│   │   ├── generate_synthetic_dataset.py
+│   │   ├── preview_few_shots.py
+│   │   ├── README.md
+│   │   ├── train_lora.py
+│   │   └── upload_to_huggingface.py
 │   ├── ui/
 │   │   ├── components/
 │   │   │   ├── charts.py
@@ -102,11 +152,20 @@ garmin-personal-insight-agent/
 │   ├── eval/
 │   ├── integration/
 │   └── unit/
+│       ├── test_anomaly_detection.py
+│       ├── test_causality_engine.py
 │       ├── test_database.py
+│       ├── test_dvc_manager.py
 │       ├── test_garmin_client.py
 │       ├── test_logger.py
+│       ├── test_predictions_manager.py
+│       ├── test_r2_storage.py
+│       ├── test_rag_chunking.py
 │       ├── test_sample_sync.py
-│       └── test_sync_pipeline.py
+│       ├── test_sql_tools.py
+│       ├── test_sync_pipeline.py
+│       ├── test_synthetic_data_seeds.py
+│       └── test_time_series_models.py
 │
 ├── specs/
 │   ├── 00_system_architecture.md
