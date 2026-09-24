@@ -137,6 +137,7 @@ def train(
     output_dir_override: str | None = None,
     epochs_override: int | None = None,
     max_steps_override: int | None = None,
+    use_hub_override: bool = False,
     dry_run: bool = False,
 ) -> str:
     """Executes the LoRA Supervised Fine-Tuning pipeline.
@@ -147,6 +148,7 @@ def train(
         output_dir_override: Optional output directory for checkpoints.
         epochs_override: Optional training epochs override.
         max_steps_override: Optional max training steps limit (useful for quick checks).
+        use_hub_override: If True, pulls dataset from Hugging Face Hub instead of local file.
         dry_run: If True, loads and formats data and model without executing trainer.train().
 
     Returns:
@@ -188,10 +190,12 @@ def train(
 
     # 4. Dataset Loading & Preparation
     dataset_path = dataset_cfg.get("local_path", "data/synthetic/synthetic_dataset_400.jsonl")
+    hf_repo_id = dataset_cfg.get("hf_repo_id", "GerardoMayel/garmin-mexican-fitness-coach-sft")
+    use_hub = use_hub_override or not Path(dataset_path).exists()
     val_ratio = dataset_cfg.get("val_split_ratio", 0.1)
     seed = dataset_cfg.get("seed", 42)
 
-    raw_examples = load_raw_dataset(path=dataset_path)
+    raw_examples = load_raw_dataset(path=dataset_path, use_hub=use_hub, repo_id=hf_repo_id)
     train_raw, val_raw = split_dataset(raw_examples, val_ratio=val_ratio, seed=seed)
 
     dataset_dict = build_hf_dataset_dict(train_raw, val_raw, tokenizer=tokenizer)
@@ -265,6 +269,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, default=None, help="Directorio destino de checkpoints.")
     parser.add_argument("--epochs", type=int, default=None, help="Número de épocas.")
     parser.add_argument("--max-steps", type=int, default=None, help="Máximo de pasos de entrenamiento.")
+    parser.add_argument("--hub", action="store_true", help="Descargar dataset directamente desde Hugging Face Hub.")
     parser.add_argument("--dry-run", action="store_true", help="Simular sin entrenar.")
     args = parser.parse_args()
 
@@ -274,6 +279,7 @@ def main() -> None:
         output_dir_override=args.output_dir,
         epochs_override=args.epochs,
         max_steps_override=args.max_steps,
+        use_hub_override=args.hub,
         dry_run=args.dry_run,
     )
 
