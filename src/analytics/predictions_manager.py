@@ -57,6 +57,9 @@ SUPPORTED_PREDICTION_METRICS = [
     "total_steps",
     "daily_avg_stress",
     "hrv_rmssd",
+    # Biological Aging & Fitness
+    "fitness_age",
+    "fitness_age_gap",
 ]
 
 
@@ -108,6 +111,7 @@ class BiometricPredictionsManager:
         self.db_path = self.predictions_dir / "weekly_biometric_forecasts.db"
         self.parquet_path = self.predictions_dir / "weekly_biometric_forecasts.parquet"
         self.csv_path = self.predictions_dir / "weekly_biometric_forecasts.csv"
+        self.forecast_csv_path = str(self.csv_path)
         self._init_sqlite_db()
 
     def _init_sqlite_db(self) -> None:
@@ -215,10 +219,12 @@ class BiometricPredictionsManager:
         self,
         metrics: list[str] | None = None,
         reference_date: date | None = None,
+        force: bool = False,
     ) -> pd.DataFrame:
         """Generate forecasts for unrecorded horizon dates and lock them into the table.
 
-        Existing predictions are preserved and never overwritten.
+        When force is False, existing predictions are preserved and never overwritten.
+        When force is True, horizon dates are re-forecasted and updated.
         """
         if not self.features_file.exists():
             raise FileNotFoundError(f"Clean features file not found: {self.features_file}")
@@ -228,18 +234,27 @@ class BiometricPredictionsManager:
         df_history = df_history.sort_values("calendar_date").reset_index(drop=True)
 
         latest_history_date = df_history["calendar_date"].iloc[-1].date()
-        effective_base_date = reference_date or latest_history_date
+        effective_base_date = reference_date or date.today()
 
         target_dates = get_biweekly_target_dates(effective_base_date)
         if not target_dates:
             logger.warning("No target dates computed for bi-weekly horizon.")
             return self.load_existing_predictions()
 
+        if force and self.db_path.exists():
+            import sqlite3
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "DELETE FROM biometric_forecasts WHERE target_date >= ?",
+                    (str(target_dates[0]),),
+                )
+
         active_metrics = metrics or SUPPORTED_PREDICTION_METRICS
         existing_df = self.load_existing_predictions()
 
         # Set of already locked (target_date, metric)
-        if not existing_df.empty:
+        if not existing_df.empty and not force:
             locked_keys = set(
                 zip(
                     existing_df["target_date"].astype(str),
@@ -253,11 +268,11 @@ class BiometricPredictionsManager:
         new_records: list[dict[str, Any]] = []
         gen_date_str = str(effective_base_date)
 
-        # Horizon length in days
-        horizon_days = (target_dates[-1] - effective_base_date).days
+        # Horizon length in days relative to latest historical observation
+        horizon_days = max(len(target_dates), (target_dates[-1] - latest_history_date).days)
 
         logger.info(
-            f"Evaluating forecasts from {target_dates[0]} to {target_dates[-1]} ({len(target_dates)} dates)."
+            f"Evaluating forecasts from {target_dates[0]} to {target_dates[-1]} ({len(target_dates)} dates, horizon={horizon_days}d)."
         )
 
         for metric in active_metrics:
@@ -266,9 +281,13 @@ class BiometricPredictionsManager:
                 continue
 
             # Check if all target dates are already locked for this metric
-            unrecorded_dates = [d for d in target_dates if (str(d), metric) not in locked_keys]
+            unrecorded_dates = (
+                target_dates
+                if force
+                else [d for d in target_dates if (str(d), metric) not in locked_keys]
+            )
             model_file = Path("data/artifacts/models") / f"{metric}_ensemble.joblib"
-            if not unrecorded_dates and model_file.exists():
+            if not unrecorded_dates and model_file.exists() and not force:
                 logger.info(
                     f"Metric '{metric}': All {len(target_dates)} horizon dates already locked and model saved. Skipping."
                 )
@@ -334,13 +353,31 @@ class BiometricPredictionsManager:
 
         if new_records:
             new_df = pd.DataFrame(new_records)
-            combined_df = (
-                pd.concat([existing_df, new_df], ignore_index=True)
-                .sort_values(["metric", "target_date"])
-                .reset_index(drop=True)
-            )
+            if force and not existing_df.empty:
+                new_keys = set(
+                    zip(
+                        new_df["target_date"].astype(str),
+                        new_df["metric"].astype(str),
+                        strict=False,
+                    )
+                )
+                mask_keep = ~existing_df.apply(
+                    lambda r: (str(r["target_date"]), str(r["metric"])) in new_keys, axis=1
+                )
+                filtered_existing = existing_df[mask_keep]
+                combined_df = (
+                    pd.concat([filtered_existing, new_df], ignore_index=True)
+                    .sort_values(["metric", "target_date"])
+                    .reset_index(drop=True)
+                )
+            else:
+                combined_df = (
+                    pd.concat([existing_df, new_df], ignore_index=True)
+                    .sort_values(["metric", "target_date"])
+                    .reset_index(drop=True)
+                )
             logger.info(
-                f"PredictionsManager: Appended {len(new_records)} newly locked predictions across {len(active_metrics)} metrics."
+                f"PredictionsManager: Appended/Updated {len(new_records)} locked predictions across {len(active_metrics)} metrics."
             )
         else:
             combined_df = existing_df
@@ -353,10 +390,11 @@ class BiometricPredictionsManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             if new_records:
+                insert_verb = "INSERT OR REPLACE" if force else "INSERT OR IGNORE"
                 for rec in new_records:
                     cursor.execute(
-                        """
-                        INSERT OR IGNORE INTO biometric_forecasts (
+                        f"""
+                        {insert_verb} INTO biometric_forecasts (
                             forecast_generated_date, target_date, metric,
                             predicted_value, ci_lower, ci_upper, model_name, is_locked, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -401,6 +439,19 @@ class BiometricPredictionsManager:
         combined_df.to_parquet(self.parquet_path, index=False)
         combined_df.to_csv(self.csv_path, index=False)
         logger.info(f"Predictions persisted to SQLite ({self.db_path}), Parquet, and CSV.")
+
+        # Consolidate into unified Garmin database (garmin_history.db)
+        try:
+            from src.common.database import GarminDatabase
+
+            g_db = GarminDatabase()
+            count = g_db.upsert_consolidated_forecasts(combined_df)
+            logger.info(
+                f"Consolidados {count} pronósticos en 'consolidated_biometric_forecasts' de garmin_history.db."
+            )
+        except Exception as e:
+            logger.warning(f"Error sincronizando pronósticos con garmin_history.db: {e}")
+
         return combined_df
 
 
@@ -422,6 +473,11 @@ def main() -> None:
         help="Output directory for predictions.",
     )
     parser.add_argument("--sync-r2", action="store_true", help="Sync to Cloudflare R2 bucket.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-forecast and update predictions for horizon dates.",
+    )
 
     args = parser.parse_args()
 
@@ -429,7 +485,7 @@ def main() -> None:
         features_file=args.features_file,
         predictions_dir=args.predictions_dir,
     )
-    preds_df = manager.generate_and_update_forecasts()
+    preds_df = manager.generate_and_update_forecasts(force=args.force)
 
     print("\n" + "=" * 75)
     print("📈 Garmin Rolling Bi-Weekly Locked Predictions Table")

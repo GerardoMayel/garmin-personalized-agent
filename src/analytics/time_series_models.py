@@ -116,14 +116,38 @@ def compute_physiological_bounds(
         if cap - floor < 10.0:
             cap = floor + 15.0
 
-    elif metric_name in ("daily_avg_stress", "sleep_score"):
-        # Garmin standard 0-100 scale
-        floor = 0.0
+    elif metric_name == "daily_avg_stress":
+        # Autonomic stress: Empirical baseline bounds around mu +/- 1.5 sigma
+        # Athlete's empirical telemetry ranges between 20 and 36, centering organically around ~26-29.
+        obs_mean = float(np.mean(valid))
+        obs_std = float(np.std(valid)) if len(valid) > 1 else 3.0
+        if np.isnan(obs_std) or obs_std <= 0:
+            obs_std = 3.0
+
+        floor = max(18.0, min(obs_min, round(obs_mean - 1.5 * obs_std, 1)))
+        cap = min(38.0, max(obs_max, round(obs_mean + 1.5 * obs_std, 1)))
+        if cap - floor < 6.0:
+            cap = min(40.0, floor + 8.0)
+
+    elif metric_name == "sleep_score":
+        # Garmin standard sleep score scale (0-100) with clinical minimum floor
+        floor = max(30.0, min(obs_min - 10.0, 50.0))
         cap = 100.0
 
     elif metric_name == "total_steps":
         floor = 0.0
         cap = max(obs_max * 1.5, 30000.0)
+
+    elif metric_name == "fitness_age":
+        # Fitness age (years): bounded by achievable potential floor (~33.5 - 34.0) and chronological age cap (~40.5)
+        floor = max(28.0, min(obs_min - 0.5, 33.5))
+        cap = max(obs_max + 1.0, 41.0)
+
+    elif metric_name == "fitness_age_gap":
+        # Biological rejuvenation gap (years younger): Chronological Age - Fitness Age
+        # Empirical gap is ~5.1 - 5.3 years, target potential ~6.1 years
+        floor = max(0.0, min(obs_min - 1.0, 3.5))
+        cap = max(obs_max + 1.5, 7.5)
 
     else:
         # Generic heuristic
@@ -143,23 +167,48 @@ def get_anomaly_dates_for_target(
 ) -> set[str]:
     """Identify dates with anomalous observations to exclude from baseline model training.
 
-    Combines multi-feature unsupervised anomaly detection (Isolation Forest / LOF)
-    with univariate Tukey IQR filtering on the target metric.
+    Combines targeted multi-feature anomaly detection (Isolation Forest / LOF)
+    with univariate Tukey IQR filtering on the specific target metric.
     """
     anomaly_dates: set[str] = set()
 
-    # 1. Multi-feature anomaly detection
+    # Keyword mapping from target_col to contributing factor keywords
+    feature_keywords = {
+        "daily_avg_stress": ["stress"],
+        "resting_heart_rate": ["resting hr", "heart rate"],
+        "running_avg_hr": ["running", "heart rate"],
+        "gym_avg_hr": ["gym", "heart rate"],
+        "walking_avg_hr": ["walking", "heart rate"],
+        "hrv_rmssd": ["hrv", "rmssd"],
+        "sleep_score": ["sleep"],
+        "total_sleep_hours": ["sleep"],
+        "total_steps": ["step", "activity"],
+        "active_kilocalories": ["calorie", "cals", "activity"],
+        "total_kilocalories": ["calorie", "cals"],
+        "resting_kilocalories": ["calorie", "resting"],
+    }
+    keywords = feature_keywords.get(target_col, [target_col.replace("_", " ")])
+
+    # 1. Multi-feature anomaly detection (targeted to target_col)
     try:
         from src.analytics.anomaly_detection import PhysiologicalAnomalyDetector
 
         detector = PhysiologicalAnomalyDetector()
         detected_points = detector.detect(df)
-        anomaly_dates = {pt.calendar_date for pt in detected_points if pt.is_anomaly}
+        for pt in detected_points:
+            if pt.is_anomaly:
+                # Attribute anomaly to target_col only if target metric is a contributing factor
+                is_target_affected = any(
+                    any(kw in factor.lower() for kw in keywords)
+                    for factor in pt.contributing_factors
+                )
+                if is_target_affected:
+                    anomaly_dates.add(pt.calendar_date)
     except Exception as exc:
         logger.debug(f"Multi-feature anomaly detection skipped during TS prep: {exc}")
 
-    # 2. Univariate Tukey IQR rule on target_col
-    if target_col in df.columns and "calendar_date" in df.columns:
+    # 2. Univariate Tukey IQR rule on target_col (excluding slow-moving adaptation metrics)
+    if target_col in df.columns and "calendar_date" in df.columns and target_col not in ("fitness_age", "fitness_age_gap"):
         vals = pd.to_numeric(df[target_col], errors="coerce")
         q25, q75 = vals.quantile(0.25), vals.quantile(0.75)
         iqr = q75 - q25
@@ -301,11 +350,23 @@ class GarminProphetForecaster:
         p_df = self._prepare_prophet_df(df, target_col, regressors)
         self.target_col = target_col
 
+        # Weekly seasonality in Prophet requires >= 14 observations; disable for ultra-short series
+        effective_weekly = self.weekly_seasonality
+        if len(p_df) < 14 and effective_weekly:
+            effective_weekly = False
+            logger.info(
+                f"Prophet: Disabled weekly seasonality for '{target_col}' (observations={len(p_df)} < 14)."
+            )
+
+        effective_growth = (
+            "flat" if target_col == "daily_avg_stress" and self.growth == "logistic" else self.growth
+        )
+
         self.model = Prophet(
-            growth=self.growth,
+            growth=effective_growth,
             changepoint_prior_scale=self.changepoint_prior_scale,
             seasonality_prior_scale=self.seasonality_prior_scale,
-            weekly_seasonality=self.weekly_seasonality,
+            weekly_seasonality=effective_weekly,
             yearly_seasonality=self.yearly_seasonality,
             daily_seasonality=self.daily_seasonality,
         )
@@ -316,7 +377,7 @@ class GarminProphetForecaster:
         self.model.fit(p_df)
         self.is_fitted = True
         logger.info(
-            f"Prophet forecaster fitted for target '{target_col}' (growth={self.growth}, "
+            f"Prophet forecaster fitted for target '{target_col}' (growth={effective_growth}, "
             f"bounds={self.bounds}, anomalies_masked={len(self.masked_anomalies_)})."
         )
         return self
@@ -455,11 +516,13 @@ class HoltWintersForecaster:
         # Weekly seasonality if >= 14 observations
         seasonal = "add" if len(y_clean) >= 14 else None
         seasonal_periods = 7 if seasonal else None
+        trend = None if target_col == "daily_avg_stress" else "add"
+        damped = self.damped_trend if trend is not None else False
 
         self.model = ExponentialSmoothing(
             y_clean,
-            trend="add",
-            damped_trend=self.damped_trend,
+            trend=trend,
+            damped_trend=damped,
             seasonal=seasonal,
             seasonal_periods=seasonal_periods,
             initialization_method="estimated",

@@ -204,7 +204,6 @@ uv run python -m src.common.database --backfill
 # Consultar el recuento y estado de registros en todas las tablas:
 uv run python -m src.common.database --stats
 ```
-
 ---
 
 ## 🛠️ Herramientas Text-to-SQL (Function Calling Determinista)
