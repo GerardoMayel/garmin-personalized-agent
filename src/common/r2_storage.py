@@ -565,6 +565,7 @@ def main() -> None:
         res = client.restore_raw_directory()
         print(f"Resultado de restauración raw desde R2: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
+
     if args.sync_dvc:
         res = client.sync_dvc_dataset()
         print(f"Resultado de sincronización dvc: {res}")

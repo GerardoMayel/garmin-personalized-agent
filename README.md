@@ -193,6 +193,16 @@ WHERE calendar_date BETWEEN '2026-09-01' AND '2026-09-28';
 - Para fechas históricas cerradas: devuelve `record_type = 'ACTUAL'` con la telemetría real consolidada.
 - Para fechas futuras: devuelve `record_type = 'FORECAST'` con las proyecciones pivoteadas por métrica.
 
+#### 4. Tabla de Promedios Bi-Semanales: `bi_weekly_average`
+- **Ubicación**: `data/processed/predictions/weekly_biometric_forecasts.db` y `data/processed/garmin_history.db` (exportada a `data/processed/predictions/bi_weekly_average.parquet` y `.csv`, sincronizada en Cloudflare R2 bajo `forecast/`).
+- **Gatillado**: Se ejecuta de forma automatizada en el cron diario de GitHub Actions a fecha ancla $T_0$ (hoy) mediante `BiWeeklyAverageManager`.
+- **Regla Fisiológica y de Negocio**:
+  - **Fecha Ancla ($T_0$)**: Día de ejecución / hoy (`date.today()`), con unicidad estricta (1 fila por fecha ancla, clave primaria `anchor_date`).
+  - **Ventana Histórica Pasada (7 días cerrados)**: $[T_0 - 7\text{d}, T_0 - 1\text{d}]$ a día vencido.
+  - **Ventana de Pronóstico Futura (7 días)**: $[T_0, T_0 + 6\text{d}]$ (hoy más 6 días siguientes = 7 días de horizonte).
+  - **Exclusión Estricta de Ceros y Nulos**: Los días sin telemetría, valores nulos y ceros NO promedian ni suman al divisor; el promedio se calcula dividiendo estrictamente entre el número de días con valores válidos y reales disponibles.
+  - **Variables Consolidadas**: Desglose pareado (`avg_<metric>_last_7d` vs `forecast_<metric>_next_7d` y conteo de días válidos) para las 14 métricas biométricas: pasos, estrés autónomo diario, frecuencia cardíaca en reposo (RHR), puntuación de sueño, horas de sueño, HRV rMSSD, calorías activas/reposo/totales, edad biológica, brecha de rejuvenecimiento y FC media por disciplina (carrera, fuerza/gym, caminata).
+
 ### Operaciones de Base de Datos
 ```bash
 # Construir o refrescar la tabla de reales consolidados:
@@ -204,7 +214,6 @@ uv run python -m src.common.database --backfill
 # Consultar el recuento y estado de registros en todas las tablas:
 uv run python -m src.common.database --stats
 ```
-
 ---
 
 ## 🛠️ Herramientas Text-to-SQL (Function Calling Determinista)

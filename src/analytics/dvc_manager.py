@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -94,7 +95,13 @@ class GarminDVCManager:
             st.medium_stress_duration_sec,
             st.high_stress_duration_sec,
             m.vo2_max_running,
-            m.fitness_age,
+            COALESCE(f.fitness_age, m.fitness_age) AS fitness_age,
+            f.chronological_age,
+            f.achievable_fitness_age,
+            COALESCE(f.fitness_age_gap, ROUND(f.chronological_age - f.fitness_age, 2)) AS fitness_age_gap,
+            f.body_fat_pct,
+            f.vigorous_minutes_avg,
+            f.target_potential_age,
             COALESCE(a.daily_activity_count, 0) AS daily_activity_count,
             COALESCE(a.total_activity_duration_sec, 0) AS total_activity_duration_sec,
             COALESCE(a.total_activity_distance_m, 0) AS total_activity_distance_m,
@@ -106,6 +113,7 @@ class GarminDVCManager:
         LEFT JOIN hrv_records h ON d.calendar_date = h.calendar_date
         LEFT JOIN stress_records st ON d.calendar_date = st.calendar_date
         LEFT JOIN max_metrics m ON d.calendar_date = m.calendar_date
+        LEFT JOIN fitness_age_records f ON d.calendar_date = f.calendar_date
         LEFT JOIN daily_act a ON d.calendar_date = a.calendar_date
         ORDER BY d.calendar_date ASC;
         """
@@ -215,36 +223,60 @@ class GarminDVCManager:
             / (df_merged["steps_roll_7d"] + 1e-4)
         ).round(2)
 
+        # 6. Fitness age and biological rejuvenation gap
+        df_merged["chronological_age"] = (
+            pd.to_numeric(df_merged["chronological_age"], errors="coerce")
+            .ffill().bfill().fillna(40.0)
+        )
+        df_merged["fitness_age"] = (
+            pd.to_numeric(df_merged["fitness_age"], errors="coerce")
+            .ffill().bfill().fillna(34.8)
+        )
+        df_merged["achievable_fitness_age"] = (
+            pd.to_numeric(df_merged["achievable_fitness_age"], errors="coerce")
+            .ffill().bfill().fillna(34.5)
+        )
+        df_merged["fitness_age_gap"] = (
+            df_merged["chronological_age"] - df_merged["fitness_age"]
+        ).round(2)
+        df_merged["body_fat_pct"] = (
+            pd.to_numeric(df_merged["body_fat_pct"], errors="coerce")
+            .ffill().bfill().fillna(16.6)
+        )
+        df_merged["vigorous_minutes_avg"] = (
+            pd.to_numeric(df_merged["vigorous_minutes_avg"], errors="coerce")
+            .ffill().bfill().fillna(35.0)
+        )
+
         return df_merged
 
     def update_clean_dataset(self) -> pd.DataFrame:
-        """Extract current database records and perform an append-only merge on DVC table.
+        """Extract current database records and perform a clean upsert merge on DVC table.
 
-        Existing dates are preserved and new dates are seamlessly appended.
+        Enforces 'día vencido' (< today) and ensures reconciled values replace stale/partial records.
         """
+        today_str = date.today().isoformat()
         extracted_df = self.extract_clean_dataframe()
+        extracted_df = extracted_df[extracted_df["calendar_date"].astype(str) < today_str]
+
         parquet_path = self.dvc_dir / "garmin_clean_features.parquet"
         csv_path = self.dvc_dir / "garmin_clean_features.csv"
 
         if parquet_path.exists():
             existing_df = pd.read_parquet(parquet_path)
-            existing_dates = set(existing_df["calendar_date"].astype(str))
-            new_rows = extracted_df[~extracted_df["calendar_date"].astype(str).isin(existing_dates)]
-
-            if not new_rows.empty:
-                combined = (
-                    pd.concat([existing_df, new_rows], ignore_index=True)
-                    .sort_values("calendar_date")
-                    .reset_index(drop=True)
-                )
-                logger.info(
-                    f"DVC: Appended {len(new_rows)} new dates to clean dataset. Total: {len(combined)} rows."
-                )
-            else:
-                combined = existing_df
-                logger.info(f"DVC: Dataset is up to date with {len(combined)} records.")
+            existing_df = existing_df[existing_df["calendar_date"].astype(str) < today_str]
+            # Keep older dates that might not be in extracted_df, but let extracted_df take precedence
+            existing_unmatched = existing_df[
+                ~existing_df["calendar_date"].astype(str).isin(extracted_df["calendar_date"].astype(str))
+            ]
+            combined = (
+                pd.concat([existing_unmatched, extracted_df], ignore_index=True)
+                .sort_values("calendar_date")
+                .reset_index(drop=True)
+            )
+            logger.info(f"DVC: Reconciled and updated clean dataset with {len(combined)} records.")
         else:
-            combined = extracted_df
+            combined = extracted_df.sort_values("calendar_date").reset_index(drop=True)
             logger.info(f"DVC: Initialized clean dataset with {len(combined)} records.")
 
         combined.to_parquet(parquet_path, index=False)
