@@ -2,17 +2,99 @@
         MAPEO DETALLADO DE COLUMNAS, TIPOS DE DATOS TÉCNICOS Y EJEMPLOS REALES
                       GARMIN PERSONAL INSIGHT AGENT (CLOUD R2)
 =========================================================================================================
-Fecha de Generación: 2026-10-01 10:28:23 UTC
+Fecha de Generación: 2026-10-01 14:35:51 UTC
 Muestras Extraídas por Columna: TOP 3 valores reales distintos no nulos
 
 =========================================================================================================
 BASE DE DATOS [1/2]: weekly_biometric_forecasts.db
 Ubicación en Storage: forecast/weekly_biometric_forecasts.db
-Tamaño Físico:        139,264 bytes (136.0 KB)
+Tamaño Físico:        172,032 bytes (168.0 KB)
 =========================================================================================================
 
 ---------------------------------------------------------------------------------------------------------
-[1.1] TABLA: biometric_forecasts (Total Registros: 316 | Columnas: 9)
+[1.1] TABLA: bi_weekly_average (Total Registros: 2 | Columnas: 74)
+      Clave Primaria: anchor_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | anchor_date                    | TEXT           | PRIMARY KEY        | '2026-09-29', '2026-10-01'
+1   | history_window_start           | TEXT           | NOT NULL           | '2026-09-22', '2026-09-24'
+2   | history_window_end             | TEXT           | NOT NULL           | '2026-09-28', '2026-09-30'
+3   | forecast_window_start          | TEXT           | NOT NULL           | '2026-09-29', '2026-10-01'
+4   | forecast_window_end            | TEXT           | NOT NULL           | '2026-10-05', '2026-10-07'
+5   | avg_total_steps_last_7d        | REAL           | NULLABLE           | 1.007e+04, 9621
+6   | forecast_total_steps_next_7d   | REAL           | NULLABLE           | 5525, 6918
+7   | valid_days_hist_total_steps    | INTEGER        | DEFAULT 0          | 6, 4
+8   | valid_days_forecast_total_steps | INTEGER        | DEFAULT 0          | 7
+9   | avg_daily_avg_stress_last_7d   | REAL           | NULLABLE           | 30.33, 32.25
+10  | forecast_daily_avg_stress_next_7d | REAL           | NULLABLE           | 30.35, 30.38
+11  | valid_days_hist_daily_avg_stress | INTEGER        | DEFAULT 0          | 6, 4
+12  | valid_days_forecast_daily_avg_stress | INTEGER        | DEFAULT 0          | 7
+13  | avg_resting_heart_rate_last_7d | REAL           | NULLABLE           | 59
+14  | forecast_resting_heart_rate_next_7d | REAL           | NULLABLE           | 56.11, 56.8
+15  | valid_days_hist_resting_heart_rate | INTEGER        | DEFAULT 0          | 6, 4
+16  | valid_days_forecast_resting_heart_rate | INTEGER        | DEFAULT 0          | 7
+17  | avg_sleep_score_last_7d        | REAL           | NULLABLE           | 75.67, 73
+18  | forecast_sleep_score_next_7d   | REAL           | NULLABLE           | 87.62, 86.57
+19  | valid_days_hist_sleep_score    | INTEGER        | DEFAULT 0          | 6, 4
+20  | valid_days_forecast_sleep_score | INTEGER        | DEFAULT 0          | 7
+21  | avg_total_sleep_hours_last_7d  | REAL           | NULLABLE           | 6.08, 6.18
+22  | forecast_total_sleep_hours_next_7d | REAL           | NULLABLE           | 7.11, 6.88
+23  | valid_days_hist_total_sleep_hours | INTEGER        | DEFAULT 0          | 6, 4
+24  | valid_days_forecast_total_sleep_hours | INTEGER        | DEFAULT 0          | 7
+25  | avg_hrv_rmssd_last_7d          | REAL           | NULLABLE           | 38.83, 38
+26  | forecast_hrv_rmssd_next_7d     | REAL           | NULLABLE           | 42.45, 42.4
+27  | valid_days_hist_hrv_rmssd      | INTEGER        | DEFAULT 0          | 6, 4
+28  | valid_days_forecast_hrv_rmssd  | INTEGER        | DEFAULT 0          | 7
+29  | avg_total_kilocalories_last_7d | REAL           | NULLABLE           | 2253, 2258
+30  | forecast_total_kilocalories_next_7d | REAL           | NULLABLE           | 2180, 2268
+31  | valid_days_hist_total_kilocalories | INTEGER        | DEFAULT 0          | 6, 4
+32  | valid_days_forecast_total_kilocalories | INTEGER        | DEFAULT 0          | 7
+33  | avg_active_kilocalories_last_7d | REAL           | NULLABLE           | 411.3, 433.2
+34  | forecast_active_kilocalories_next_7d | REAL           | NULLABLE           | 374.4, 424.2
+35  | valid_days_hist_active_kilocalories | INTEGER        | DEFAULT 0          | 6, 4
+36  | valid_days_forecast_active_kilocalories | INTEGER        | DEFAULT 0          | 7
+37  | avg_resting_kilocalories_last_7d | REAL           | NULLABLE           | 1842, 1825
+38  | forecast_resting_kilocalories_next_7d | REAL           | NULLABLE           | 1817, 1834
+39  | valid_days_hist_resting_kilocalories | INTEGER        | DEFAULT 0          | 6, 4
+40  | valid_days_forecast_resting_kilocalories | INTEGER        | DEFAULT 0          | 7
+41  | avg_fitness_age_last_7d        | REAL           | NULLABLE           | 34.6, 34.64
+42  | forecast_fitness_age_next_7d   | REAL           | NULLABLE           | 34.73, 34.75
+43  | valid_days_hist_fitness_age    | INTEGER        | DEFAULT 0          | 7
+44  | valid_days_forecast_fitness_age | INTEGER        | DEFAULT 0          | 7
+45  | avg_fitness_age_gap_last_7d    | REAL           | NULLABLE           | 5.4, 5.36
+46  | forecast_fitness_age_gap_next_7d | REAL           | NULLABLE           | 5.28, 5.27
+47  | valid_days_hist_fitness_age_gap | INTEGER        | DEFAULT 0          | 7
+48  | valid_days_forecast_fitness_age_gap | INTEGER        | DEFAULT 0          | 7
+49  | avg_walking_avg_hr_last_7d     | REAL           | NULLABLE           | [Sin registros / Todos NULL]
+50  | forecast_walking_avg_hr_next_7d | REAL           | NULLABLE           | 119, 119
+51  | valid_days_hist_walking_avg_hr | INTEGER        | DEFAULT 0          | 0
+52  | valid_days_forecast_walking_avg_hr | INTEGER        | DEFAULT 0          | 7
+53  | avg_running_avg_hr_last_7d     | REAL           | NULLABLE           | 175
+54  | forecast_running_avg_hr_next_7d | REAL           | NULLABLE           | 170.9, 165.9
+55  | valid_days_hist_running_avg_hr | INTEGER        | DEFAULT 0          | 1
+56  | valid_days_forecast_running_avg_hr | INTEGER        | DEFAULT 0          | 7
+57  | avg_gym_avg_hr_last_7d         | REAL           | NULLABLE           | 120
+58  | forecast_gym_avg_hr_next_7d    | REAL           | NULLABLE           | 111.5, 117.3
+59  | valid_days_hist_gym_avg_hr     | INTEGER        | DEFAULT 0          | 2
+60  | valid_days_forecast_gym_avg_hr | INTEGER        | DEFAULT 0          | 7
+61  | avg_steps_last_7d              | REAL           | NULLABLE           | 1.007e+04, 9621
+62  | forecast_steps_next_7d         | REAL           | NULLABLE           | 5525, 6918
+63  | avg_stress_last_7d             | REAL           | NULLABLE           | 30.33, 32.25
+64  | forecast_stress_next_7d        | REAL           | NULLABLE           | 30.35, 30.38
+65  | avg_resting_hr_last_7d         | REAL           | NULLABLE           | 59
+66  | forecast_resting_hr_next_7d    | REAL           | NULLABLE           | 56.11, 56.8
+67  | avg_sleep_hours_last_7d        | REAL           | NULLABLE           | 6.08, 6.18
+68  | forecast_sleep_hours_next_7d   | REAL           | NULLABLE           | 7.11, 6.88
+69  | avg_total_calories_last_7d     | REAL           | NULLABLE           | 2253, 2258
+70  | forecast_total_calories_next_7d | REAL           | NULLABLE           | 2180, 2268
+71  | avg_active_calories_last_7d    | REAL           | NULLABLE           | 411.3, 433.2
+72  | forecast_active_calories_next_7d | REAL           | NULLABLE           | 374.4, 424.2
+73  | created_at                     | TEXT           | NOT NULL           | '2026-10-01T16:34:58.584504', '2026-10-01T16:35:14.688915'
+
+
+---------------------------------------------------------------------------------------------------------
+[1.2] TABLA: biometric_forecasts (Total Registros: 330 | Columnas: 9)
       Clave Primaria: target_date, metric
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -29,7 +111,7 @@ Tamaño Físico:        139,264 bytes (136.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[1.2] TABLA: forecast_metadata (Total Registros: 115 | Columnas: 10)
+[1.3] TABLA: forecast_metadata (Total Registros: 134 | Columnas: 10)
       Clave Primaria: run_id
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -39,8 +121,8 @@ Tamaño Físico:        139,264 bytes (136.0 KB)
 2   | horizon_start                  | TEXT           | NOT NULL           | '2026-09-18', '2026-09-21', '2026-09-20'
 3   | horizon_end                    | TEXT           | NOT NULL           | '2026-09-27', '2026-10-04', '2026-10-11'
 4   | total_horizon_days             | INTEGER        | NOT NULL           | 10, 14, 8
-5   | metrics_count                  | INTEGER        | NOT NULL           | 12, 14
-6   | metrics_list                   | TEXT           | NOT NULL           | '["resting_heart_rate", "running_avg_hr"...', '["resting_heart_rate", "running_avg_hr"...'
+5   | metrics_count                  | INTEGER        | NOT NULL           | 12, 14, 1
+6   | metrics_list                   | TEXT           | NOT NULL           | '["resting_heart_rate", "running_avg_hr"...', '["resting_heart_rate", "running_avg_hr"...', '["daily_avg_stress"]'
 7   | new_records_added              | INTEGER        | NOT NULL           | 12, 108, 0
 8   | total_locked_records           | INTEGER        | NOT NULL           | 120, 204, 232
 9   | created_at                     | TEXT           | NOT NULL           | '2026-09-18T16:31:54.895059+00:00', '2026-09-18T16:32:12.694173+00:00', '2026-09-18T16:32:46.212568+00:00'
@@ -49,7 +131,7 @@ Tamaño Físico:        139,264 bytes (136.0 KB)
 =========================================================================================================
 BASE DE DATOS [2/2]: garmin_history.db
 Ubicación en Storage: processed/garmin_history.db
-Tamaño Físico:        147,456 bytes (144.0 KB)
+Tamaño Físico:        196,608 bytes (192.0 KB)
 =========================================================================================================
 
 ---------------------------------------------------------------------------------------------------------
@@ -73,11 +155,93 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 12  | calories                       | REAL           | NULLABLE           | 99, 7, 154
 13  | fit_zip_path                   | TEXT           | NULLABLE           | '/private/var/folders/pd/pqtl0_9124j1fx_...', 'data/raw/2026-08-11/activities/activity...', 'data/raw/2026-08-11/activities/activity...'
 14  | start_time_local               | TEXT           | NULLABLE           | '2026-09-14 07:30:00', '2026-08-11 13:41:28', '2026-08-11 17:46:20'
-15  | updated_at                     | TEXT           | NULLABLE           | '2026-09-21T16:49:14.811335', '2026-09-21T15:09:36.959179', '2026-09-21T15:09:36.541584'
+15  | updated_at                     | TEXT           | NULLABLE           | '2026-10-01T14:34:57.752059', '2026-09-21T15:09:36.959179', '2026-09-21T15:09:36.541584'
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.2] TABLA: consolidated_biometric_forecasts (Total Registros: 58 | Columnas: 9)
+[2.2] TABLA: bi_weekly_average (Total Registros: 2 | Columnas: 74)
+      Clave Primaria: anchor_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | anchor_date                    | TEXT           | PRIMARY KEY        | '2026-09-29', '2026-10-01'
+1   | history_window_start           | TEXT           | NOT NULL           | '2026-09-22', '2026-09-24'
+2   | history_window_end             | TEXT           | NOT NULL           | '2026-09-28', '2026-09-30'
+3   | forecast_window_start          | TEXT           | NOT NULL           | '2026-09-29', '2026-10-01'
+4   | forecast_window_end            | TEXT           | NOT NULL           | '2026-10-05', '2026-10-07'
+5   | avg_total_steps_last_7d        | REAL           | NULLABLE           | 1.007e+04, 9621
+6   | forecast_total_steps_next_7d   | REAL           | NULLABLE           | 5525, 6918
+7   | valid_days_hist_total_steps    | INTEGER        | DEFAULT 0          | 6, 4
+8   | valid_days_forecast_total_steps | INTEGER        | DEFAULT 0          | 7
+9   | avg_daily_avg_stress_last_7d   | REAL           | NULLABLE           | 30.33, 32.25
+10  | forecast_daily_avg_stress_next_7d | REAL           | NULLABLE           | 30.35, 30.38
+11  | valid_days_hist_daily_avg_stress | INTEGER        | DEFAULT 0          | 6, 4
+12  | valid_days_forecast_daily_avg_stress | INTEGER        | DEFAULT 0          | 7
+13  | avg_resting_heart_rate_last_7d | REAL           | NULLABLE           | 59
+14  | forecast_resting_heart_rate_next_7d | REAL           | NULLABLE           | 56.11, 56.8
+15  | valid_days_hist_resting_heart_rate | INTEGER        | DEFAULT 0          | 6, 4
+16  | valid_days_forecast_resting_heart_rate | INTEGER        | DEFAULT 0          | 7
+17  | avg_sleep_score_last_7d        | REAL           | NULLABLE           | 75.67, 73
+18  | forecast_sleep_score_next_7d   | REAL           | NULLABLE           | 87.62, 86.57
+19  | valid_days_hist_sleep_score    | INTEGER        | DEFAULT 0          | 6, 4
+20  | valid_days_forecast_sleep_score | INTEGER        | DEFAULT 0          | 7
+21  | avg_total_sleep_hours_last_7d  | REAL           | NULLABLE           | 6.08, 6.18
+22  | forecast_total_sleep_hours_next_7d | REAL           | NULLABLE           | 7.11, 6.88
+23  | valid_days_hist_total_sleep_hours | INTEGER        | DEFAULT 0          | 6, 4
+24  | valid_days_forecast_total_sleep_hours | INTEGER        | DEFAULT 0          | 7
+25  | avg_hrv_rmssd_last_7d          | REAL           | NULLABLE           | 38.83, 38
+26  | forecast_hrv_rmssd_next_7d     | REAL           | NULLABLE           | 42.45, 42.4
+27  | valid_days_hist_hrv_rmssd      | INTEGER        | DEFAULT 0          | 6, 4
+28  | valid_days_forecast_hrv_rmssd  | INTEGER        | DEFAULT 0          | 7
+29  | avg_total_kilocalories_last_7d | REAL           | NULLABLE           | 2253, 2258
+30  | forecast_total_kilocalories_next_7d | REAL           | NULLABLE           | 2180, 2268
+31  | valid_days_hist_total_kilocalories | INTEGER        | DEFAULT 0          | 6, 4
+32  | valid_days_forecast_total_kilocalories | INTEGER        | DEFAULT 0          | 7
+33  | avg_active_kilocalories_last_7d | REAL           | NULLABLE           | 411.3, 433.2
+34  | forecast_active_kilocalories_next_7d | REAL           | NULLABLE           | 374.4, 424.2
+35  | valid_days_hist_active_kilocalories | INTEGER        | DEFAULT 0          | 6, 4
+36  | valid_days_forecast_active_kilocalories | INTEGER        | DEFAULT 0          | 7
+37  | avg_resting_kilocalories_last_7d | REAL           | NULLABLE           | 1842, 1825
+38  | forecast_resting_kilocalories_next_7d | REAL           | NULLABLE           | 1817, 1834
+39  | valid_days_hist_resting_kilocalories | INTEGER        | DEFAULT 0          | 6, 4
+40  | valid_days_forecast_resting_kilocalories | INTEGER        | DEFAULT 0          | 7
+41  | avg_fitness_age_last_7d        | REAL           | NULLABLE           | 34.6, 34.64
+42  | forecast_fitness_age_next_7d   | REAL           | NULLABLE           | 34.73, 34.75
+43  | valid_days_hist_fitness_age    | INTEGER        | DEFAULT 0          | 7
+44  | valid_days_forecast_fitness_age | INTEGER        | DEFAULT 0          | 7
+45  | avg_fitness_age_gap_last_7d    | REAL           | NULLABLE           | 5.4, 5.36
+46  | forecast_fitness_age_gap_next_7d | REAL           | NULLABLE           | 5.28, 5.27
+47  | valid_days_hist_fitness_age_gap | INTEGER        | DEFAULT 0          | 7
+48  | valid_days_forecast_fitness_age_gap | INTEGER        | DEFAULT 0          | 7
+49  | avg_walking_avg_hr_last_7d     | REAL           | NULLABLE           | [Sin registros / Todos NULL]
+50  | forecast_walking_avg_hr_next_7d | REAL           | NULLABLE           | 119, 119
+51  | valid_days_hist_walking_avg_hr | INTEGER        | DEFAULT 0          | 0
+52  | valid_days_forecast_walking_avg_hr | INTEGER        | DEFAULT 0          | 7
+53  | avg_running_avg_hr_last_7d     | REAL           | NULLABLE           | 175
+54  | forecast_running_avg_hr_next_7d | REAL           | NULLABLE           | 170.9, 165.9
+55  | valid_days_hist_running_avg_hr | INTEGER        | DEFAULT 0          | 1
+56  | valid_days_forecast_running_avg_hr | INTEGER        | DEFAULT 0          | 7
+57  | avg_gym_avg_hr_last_7d         | REAL           | NULLABLE           | 120
+58  | forecast_gym_avg_hr_next_7d    | REAL           | NULLABLE           | 111.5, 117.3
+59  | valid_days_hist_gym_avg_hr     | INTEGER        | DEFAULT 0          | 2
+60  | valid_days_forecast_gym_avg_hr | INTEGER        | DEFAULT 0          | 7
+61  | avg_steps_last_7d              | REAL           | NULLABLE           | 1.007e+04, 9621
+62  | forecast_steps_next_7d         | REAL           | NULLABLE           | 5525, 6918
+63  | avg_stress_last_7d             | REAL           | NULLABLE           | 30.33, 32.25
+64  | forecast_stress_next_7d        | REAL           | NULLABLE           | 30.35, 30.38
+65  | avg_resting_hr_last_7d         | REAL           | NULLABLE           | 59
+66  | forecast_resting_hr_next_7d    | REAL           | NULLABLE           | 56.11, 56.8
+67  | avg_sleep_hours_last_7d        | REAL           | NULLABLE           | 6.08, 6.18
+68  | forecast_sleep_hours_next_7d   | REAL           | NULLABLE           | 7.11, 6.88
+69  | avg_total_calories_last_7d     | REAL           | NULLABLE           | 2253, 2258
+70  | forecast_total_calories_next_7d | REAL           | NULLABLE           | 2180, 2268
+71  | avg_active_calories_last_7d    | REAL           | NULLABLE           | 411.3, 433.2
+72  | forecast_active_calories_next_7d | REAL           | NULLABLE           | 374.4, 424.2
+73  | created_at                     | TEXT           | NOT NULL           | '2026-10-01T16:34:58.584504', '2026-10-01T16:35:14.688915'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.3] TABLA: consolidated_biometric_forecasts (Total Registros: 338 | Columnas: 9)
       Clave Primaria: target_date, metric
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -90,11 +254,11 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 5   | ci_upper                       | REAL           | NOT NULL           | 571.9, 345.2, 715.4
 6   | model_name                     | TEXT           | NOT NULL           | 'Ensemble_Prophet_HoltWinters'
 7   | is_locked                      | INTEGER        | NOT NULL, DEFAULT 1 | 1
-8   | updated_at                     | TEXT           | NULLABLE           | '2026-09-21T16:49:15.513836', '2026-09-21T16:49:15.215696'
+8   | updated_at                     | TEXT           | NULLABLE           | '2026-10-01T14:34:58.579639', '2026-10-01T14:34:58.144358'
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.3] TABLA: consolidated_daily_actuals (Total Registros: 30 | Columnas: 49)
+[2.4] TABLA: consolidated_daily_actuals (Total Registros: 30 | Columnas: 49)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -151,7 +315,7 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.4] TABLA: daily_summaries (Total Registros: 30 | Columnas: 14)
+[2.5] TABLA: daily_summaries (Total Registros: 30 | Columnas: 14)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -173,26 +337,26 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.5] TABLA: fitness_age_records (Total Registros: 30 | Columnas: 11)
+[2.6] TABLA: fitness_age_records (Total Registros: 30 | Columnas: 11)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
 ---------------------------------------------------------------------------------------------------------
 0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
 1   | chronological_age              | REAL           | NULLABLE           | 40
-2   | fitness_age                    | REAL           | NULLABLE           | 34.88, 34.76, 34.31
+2   | fitness_age                    | REAL           | NULLABLE           | 35, 34.76, 34.88
 3   | achievable_fitness_age         | REAL           | NULLABLE           | 34.5
-4   | fitness_age_gap                | REAL           | NULLABLE           | 5.12, 5.24, 5.69
+4   | fitness_age_gap                | REAL           | NULLABLE           | 5.24, 5.12, 5.69
 5   | body_fat_pct                   | REAL           | NULLABLE           | 16.6
-6   | rhr_component                  | REAL           | NULLABLE           | 58, 57
-7   | vigorous_minutes_avg           | REAL           | NULLABLE           | 38.1, 38.6, 34.5
+6   | rhr_component                  | REAL           | NULLABLE           | 57, 58
+7   | vigorous_minutes_avg           | REAL           | NULLABLE           | 38.6, 34.5, 25
 8   | vigorous_days_avg              | REAL           | NULLABLE           | 1.3, 1, 1.1
 9   | target_potential_age           | REAL           | NULLABLE           | 33.93
-10  | updated_at                     | TEXT           | NULLABLE           | '2026-09-29T04:06:25.447756', '2026-10-01T04:01:16.964082', '2026-10-01T04:01:17.734489'
+10  | updated_at                     | TEXT           | NULLABLE           | '2026-10-01T14:34:57.749254', '2026-10-01T04:01:16.964082', '2026-10-01T04:01:17.734489'
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.6] TABLA: hrv_records (Total Registros: 27 | Columnas: 10)
+[2.7] TABLA: hrv_records (Total Registros: 27 | Columnas: 10)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -210,7 +374,7 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.7] TABLA: max_metrics (Total Registros: 3 | Columnas: 5)
+[2.8] TABLA: max_metrics (Total Registros: 3 | Columnas: 5)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -223,7 +387,7 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.8] TABLA: sleep_records (Total Registros: 30 | Columnas: 16)
+[2.9] TABLA: sleep_records (Total Registros: 30 | Columnas: 16)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -247,7 +411,7 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.9] TABLA: stress_records (Total Registros: 30 | Columnas: 9)
+[2.10] TABLA: stress_records (Total Registros: 30 | Columnas: 9)
       Clave Primaria: calendar_date
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
@@ -264,12 +428,12 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 
 
 ---------------------------------------------------------------------------------------------------------
-[2.10] VISTA SQL: unified_biometrics_timeline (Total Registros: 30 | Columnas: 13)
+[2.11] VISTA SQL: unified_biometrics_timeline (Total Registros: 41 | Columnas: 13)
 ---------------------------------------------------------------------------------------------------------
 #   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
 ---------------------------------------------------------------------------------------------------------
 0   | calendar_date                  | TEXT           | NULLABLE           | '2026-09-01', '2026-09-02', '2026-09-03'
-1   | record_type                    | UNSPECIFIED    | NULLABLE           | 'ACTUAL'
+1   | record_type                    | UNSPECIFIED    | NULLABLE           | 'ACTUAL', 'FORECAST'
 2   | resting_heart_rate             | BLOB           | NULLABLE           | 60, 61, 58
 3   | hrv_rmssd                      | BLOB           | NULLABLE           | 33, 38, 41
 4   | daily_avg_stress               | BLOB           | NULLABLE           | 31, 30, 33
@@ -280,7 +444,7 @@ Tamaño Físico:        147,456 bytes (144.0 KB)
 9   | fitness_age                    | BLOB           | NULLABLE           | 34.88, 34.76, 34.31
 10  | chronological_age              | REAL           | NULLABLE           | 40
 11  | fitness_age_gap                | BLOB           | NULLABLE           | 5.12, 5.24, 5.69
-12  | updated_at                     | BLOB           | NULLABLE           | '2026-10-01T04:01:26.481502'
+12  | updated_at                     | BLOB           | NULLABLE           | '2026-10-01T04:01:26.481502', '2026-10-01T14:34:58.579639'
 
 
 =========================================================================================================

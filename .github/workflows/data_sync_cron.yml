@@ -63,7 +63,7 @@ jobs:
         run: |
           uv run python -m src.common.r2_storage --restore-forecast || true
 
-      - name: Execute Garmin Sync, Ingestion & Biometric Forecasting
+      - name: Execute Garmin Sync, Ingestion, Forecasting & Bi-Weekly Averages
         env:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
@@ -81,6 +81,16 @@ jobs:
             uv run python -m src.ingestion.sync_pipeline --days-back "$DAYS" --reconcile --r2-sync
           fi
 
+      - name: Verify Bi-Weekly Averages Persistence
+        run: |
+          uv run python -c "
+          import sqlite3, pandas as pd
+          conn = sqlite3.connect('data/processed/predictions/weekly_biometric_forecasts.db')
+          df = pd.read_sql_query('SELECT * FROM bi_weekly_average ORDER BY anchor_date DESC LIMIT 1', conn)
+          print('✅ Último registro de promedios bi-semanales:')
+          print(df[['anchor_date', 'history_window_start', 'history_window_end', 'forecast_window_start', 'forecast_window_end']])
+          "
+
       - name: Upload Ingestion Artifacts & Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,4 +106,4 @@ jobs:
           retention-days: 30
 
       - name: Log Sync Completion
-        run: echo "Garmin sync and Cloudflare R2 cloud persistence completed successfully."
+        run: echo "Garmin sync, forecasting, bi-weekly averages and Cloudflare R2 persistence completed successfully."

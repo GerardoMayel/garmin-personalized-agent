@@ -155,8 +155,20 @@ def run_pipeline(
             logger.info(
                 f"Tabla de predicciones quincenales actualizada: {len(preds_df)} registros bloqueados."
             )
+
+            from src.analytics.bi_weekly_averages import BiWeeklyAverageManager
+
+            avg_mgr = BiWeeklyAverageManager(
+                db_path=target_db_path,
+                forecast_db_path=Path("data/processed/predictions/weekly_biometric_forecasts.db"),
+            )
+            anchor = parsed_date if target_date else date.today()
+            avg_record = avg_mgr.compute_and_save_averages(anchor_date=anchor)
+            logger.info(
+                f"Tabla de promedios bi-semanales actualizada para fecha ancla {avg_record['anchor_date']}."
+            )
         except Exception as e:
-            logger.warning(f"Error actualizando dataset DVC o predicciones: {e}")
+            logger.warning(f"Error actualizando dataset DVC, predicciones o promedios bi-semanales: {e}")
 
         if r2_sync:
             try:

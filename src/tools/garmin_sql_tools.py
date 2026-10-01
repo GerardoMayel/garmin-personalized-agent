@@ -69,14 +69,20 @@ def get_garmin_actuals(
         # Determinar fecha final efectiva si no se proporciona
         if not end_date:
             row_latest = conn.execute(
-                "SELECT MAX(calendar_date) as max_date FROM consolidated_daily_actuals"
-            ).fetchone()
+                "SELECT MAX(calendar_date) as max_date FROM consolidated_daily_actuals "
+                "WHERE resting_heart_rate IS NOT NULL OR total_steps IS NOT NULL"
+            )
+            row_latest = row_latest.fetchone()
             if not row_latest or not row_latest["max_date"]:
-                return {
-                    "status": "empty",
-                    "message": "No hay datos consolidados en la base de datos.",
-                    "records": [],
-                }
+                row_latest = conn.execute(
+                    "SELECT MAX(calendar_date) as max_date FROM consolidated_daily_actuals"
+                ).fetchone()
+                if not row_latest or not row_latest["max_date"]:
+                    return {
+                        "status": "empty",
+                        "message": "No hay datos consolidados en la base de datos.",
+                        "records": [],
+                    }
             effective_end = row_latest["max_date"]
         else:
             effective_end = end_date
