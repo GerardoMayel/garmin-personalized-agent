@@ -1,0 +1,720 @@
+=========================================================================================================
+           ESQUEMA INTEGRAL CONSOLIDADO DE BASES DE DATOS SQLITE (CLOUD R2)
+                        GARMIN PERSONAL INSIGHT AGENT
+=========================================================================================================
+
+Este documento reúne:
+  1. Catálogo e Inventario de Bases de Datos y Tablas.
+  2. Diagrama Entidad-Relación Textual (ASCII ERD).
+  3. Diccionario Completo de Columnas, Tipos Técnicos y Top 3 Muestras.
+
+
+=========================================================================================================
+
+==========================================================================================
+        CATÁLOGO E INVENTARIO DE BASES DE DATOS SQLITE EN CLOUD STORAGE
+                  GARMIN PERSONAL INSIGHT AGENT (CLOUD R2)
+==========================================================================================
+Fecha de Generación: 2026-10-01 10:28:23 UTC
+Total de Bases de Datos SQLite Analizadas: 2
+
+RESUMEN DE BASES DE DATOS:
+------------------------------------------------------------------------------------------
+#   | Nombre Archivo                   | Ubicación en Storage             | Tamaño     | Tablas | Vistas
+------------------------------------------------------------------------------------------
+1   | weekly_biometric_forecasts.db    | forecast/weekly_biometric_forecasts.db | 136.0 KB   | 2      | 0     
+2   | garmin_history.db                | processed/garmin_history.db      | 144.0 KB   | 9      | 1     
+------------------------------------------------------------------------------------------
+TOT | 2 Base(s) de Datos          | Bucket garmin-personal-data      | 280.0 KB   | 11     | 1     
+
+
+==========================================================================================
+[1] BASE DE DATOS: weekly_biometric_forecasts.db
+    Ruta Cloud: forecast/weekly_biometric_forecasts.db
+    Origen:     Cloudflare R2 (r2://garmin-personal-data/forecast/weekly_biometric_forecasts.db)
+    Tamaño:     139,264 bytes (136.0 KB)
+    Estructura: 2 Tablas relacionales, 0 Vistas SQL
+    Registros:  431 filas totales almacenadas
+------------------------------------------------------------------------------------------
+    Tipo     | Nombre de Elemento                  | Cols  | Filas    | Clave Primaria [PK]      
+    --------------------------------------------------------------------------------------
+    TABLE    | biometric_forecasts                 | 9     | 316      | target_date, metric      
+    TABLE    | forecast_metadata                   | 10    | 115      | run_id                   
+
+
+==========================================================================================
+[2] BASE DE DATOS: garmin_history.db
+    Ruta Cloud: processed/garmin_history.db
+    Origen:     Cloudflare R2 (r2://garmin-personal-data/processed/garmin_history.db)
+    Tamaño:     147,456 bytes (144.0 KB)
+    Estructura: 9 Tablas relacionales, 1 Vistas SQL
+    Registros:  283 filas totales almacenadas
+------------------------------------------------------------------------------------------
+    Tipo     | Nombre de Elemento                  | Cols  | Filas    | Clave Primaria [PK]      
+    --------------------------------------------------------------------------------------
+    TABLE    | activities                          | 16    | 45       | activity_id              
+    TABLE    | consolidated_biometric_forecasts    | 9     | 58       | target_date, metric      
+    TABLE    | consolidated_daily_actuals          | 49    | 30       | calendar_date            
+    TABLE    | daily_summaries                     | 14    | 30       | calendar_date            
+    TABLE    | fitness_age_records                 | 11    | 30       | calendar_date            
+    TABLE    | hrv_records                         | 10    | 27       | calendar_date            
+    TABLE    | max_metrics                         | 5     | 3        | calendar_date            
+    TABLE    | sleep_records                       | 16    | 30       | calendar_date            
+    TABLE    | stress_records                      | 9     | 30       | calendar_date            
+    VIEW     | unified_biometrics_timeline         | 13    | 30       | [Sin PK explícita]       
+
+
+==========================================================================================
+FIN DEL CATÁLOGO DE BASES DE DATOS
+==========================================================================================
+
+=========================================================================================================
+
+==========================================================================================
+           DIAGRAMA ENTIDAD-RELACIÓN EN TEXTO (ASCII ER DIAGRAM)
+                  GARMIN PERSONAL INSIGHT AGENT (CLOUD R2)
+==========================================================================================
+Fecha de Generación: 2026-10-01 10:28:23 UTC
+Formato: Diagrama Textual con Cajas de Entidades, Claves Primarias/Foráneas y Cardinalidades
+
+------------------------------------------------------------------------------------------
+BASE DE DATOS: weekly_biometric_forecasts.db (Ruta Storage: forecast/weekly_biometric_forecasts.db)
+------------------------------------------------------------------------------------------
+
+
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ ARQUITECTURA DE SERIES TEMPORALES, METADATOS Y PREDICCIONES FUTURAS                   │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────────────┐
+  │ forecast_metadata                             │
+  ├───────────────────────────────────────────────┤
+  │ * [PK] run_id (INTEGER)                       │
+  │   forecast_generated_date (TEXT)              │◄─────────────────────────────────────┐
+  │   horizon_start (TEXT)                        │                                      │
+  │   horizon_end (TEXT)                          │                                      │
+  │   total_horizon_days (INTEGER)                │                                      │
+  │   metrics_count (INTEGER)                     │                                      │
+  │   metrics_list (TEXT: JSON array)             │                                      │
+  │   total_locked_records (INTEGER)              │                                      │
+  │   created_at (TEXT)                           │                                      │
+  └───────────────────────┬───────────────────────┘                                      │
+                          │                                                              │
+                          │ ( 1 : N ) Cada corrida de pronóstico genera predicciones     │
+                          │           para múltiples métricas y días hacia adelante      │
+                          ▼                                                              │
+  ┌───────────────────────────────────────────────┐                                      │
+  │ biometric_forecasts                           │                                      │
+  ├───────────────────────────────────────────────┤                                      │
+  │ * [PK] target_date (TEXT)                     │                                      │
+  │ * [PK] metric (TEXT)                          │                                      │
+  │   [FK] forecast_generated_date (TEXT)         │──────────────────────────────────────┘
+  │   predicted_value (REAL)                      │
+  │   ci_lower (REAL)                             │ (Intervalo de Confianza Inferior 95%)
+  │   ci_upper (REAL)                             │ (Intervalo de Confianza Superior 95%)
+  │   model_name (TEXT)                           │ (Algoritmo: Ensemble_Prophet_HoltWinters)
+  │   is_locked (INTEGER: 1=Locked, 0=Draft)      │ (Garantiza inmutabilidad histórica)
+  │   created_at (TEXT)                           │
+  └───────────────────────────────────────────────┘
+
+DETALLE DE ENTIDADES Y CAMPOS CLAVE:
+
++--- [TABLA] biometric_forecasts (Filas: 316 | PK: target_date, metric) --------------+
+|       forecast_generated_date          (TEXT)             NOT NULL                 |
+|  [PK] target_date                      (TEXT)             NOT NULL                 |
+|  [PK] metric                           (TEXT)             NOT NULL                 |
+|       predicted_value                  (REAL)             NOT NULL                 |
+|       ci_lower                         (REAL)             NOT NULL                 |
+|       ci_upper                         (REAL)             NOT NULL                 |
+|       model_name                       (TEXT)             NOT NULL                 |
+|       is_locked                        (INTEGER)          NOT NULL                 |
+|       created_at                       (TEXT)             NOT NULL                 |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] forecast_metadata (Filas: 115 | PK: run_id) -----------------------------+
+|  [PK] run_id                           (INTEGER)          NULL                     |
+|       forecast_generated_date          (TEXT)             NOT NULL                 |
+|       horizon_start                    (TEXT)             NOT NULL                 |
+|       horizon_end                      (TEXT)             NOT NULL                 |
+|       total_horizon_days               (INTEGER)          NOT NULL                 |
+|       metrics_count                    (INTEGER)          NOT NULL                 |
+|       metrics_list                     (TEXT)             NOT NULL                 |
+|       new_records_added                (INTEGER)          NOT NULL                 |
+|       total_locked_records             (INTEGER)          NOT NULL                 |
+|       created_at                       (TEXT)             NOT NULL                 |
++-------------------------------------------------------------------------------------+
+
+------------------------------------------------------------------------------------------
+BASE DE DATOS: garmin_history.db (Ruta Storage: processed/garmin_history.db)
+------------------------------------------------------------------------------------------
+
+
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ MAPA DE RELACIONES LONGITUDINALES Y CONSOLIDACIÓN (CLAVE MAESTRA: calendar_date)       │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+    [ TABLAS ATÓMICAS DIARIAS ]                   [ TABLA HUB MAESTRA CONSOLIDADA ]
+                                                             
+  ┌───────────────────────────────┐                          ┌─────────────────────────────────────┐
+  │ daily_summaries               │                          │ consolidated_daily_actuals          │
+  ├───────────────────────────────┤                          ├─────────────────────────────────────┤
+  │ * [PK] calendar_date (TEXT)   │───( 1 : 1 Consolida )───►│ * [PK] calendar_date (TEXT)         │
+  │   total_steps (INTEGER)       │                          │   total_steps (INTEGER)             │
+  │   total_distance_meters (REAL)│                          │   resting_heart_rate (INTEGER)      │
+  │   active_kilocalories (REAL)  │                          │   hrv_rmssd (REAL)                  │
+  │   resting_heart_rate (INTEGER)│                          │   daily_avg_stress (INTEGER)        │
+  └───────────────────────────────┘                          │   sleep_score (INTEGER)             │
+                                                             │   deep_sleep_hours (REAL)           │
+  ┌───────────────────────────────┐                          │   avg_spo2 (REAL)                   │
+  │ sleep_records                 │                          │   active_kilocalories (REAL)        │
+  ├───────────────────────────────┤                          │   fitness_age (REAL)                │
+  │ * [PK] calendar_date (TEXT)   │───( 1 : 1 Consolida )───►│   ... (+39 métricas aplanadas)      │
+  │   sleep_score (INTEGER)       │                          └──────────────────┬──────────────────┘
+  │   deep_sleep_seconds (INTEGER)│                                             │
+  │   rem_sleep_seconds (INTEGER) │                                             │
+  │   avg_spo2 (REAL)             │                                             │
+  └───────────────────────────────┘                                             │
+                                                                                │
+  ┌───────────────────────────────┐                                             │
+  │ hrv_records                   │                                             │
+  ├───────────────────────────────┤                                             │
+  │ * [PK] calendar_date (TEXT)   │───( 1 : 1 Consolida )───────────────────────┤
+  │   last_night_avg (REAL)       │                                             │
+  │   weekly_avg (REAL)           │                                             │
+  │   status (TEXT)               │                                             │
+  └───────────────────────────────┘                                             │
+                                                                                │
+  ┌───────────────────────────────┐                                             │
+  │ stress_records                │                                             │
+  ├───────────────────────────────┤                                             │
+  │ * [PK] calendar_date (TEXT)   │───( 1 : 1 Consolida )───────────────────────┤
+  │   avg_stress_level (INTEGER)  │                                             │
+  │   max_stress_level (INTEGER)  │                                             │
+  │   rest_stress_duration (INT)  │                                             │
+  └───────────────────────────────┘                                             │
+                                                                                │
+  ┌───────────────────────────────┐                                             │
+  │ fitness_age_records           │                                             │
+  ├───────────────────────────────┤                                             │
+  │ * [PK] calendar_date (TEXT)   │───( 1 : 1 Consolida )───────────────────────┤
+  │   fitness_age (REAL)          │                                             │
+  │   fitness_age_gap (REAL)      │                                             │
+  └───────────────────────────────┘                                             │
+                                                                                │
+  ┌───────────────────────────────┐                                             │
+  │ max_metrics                   │                                             │
+  ├───────────────────────────────┤                                             │
+  │ * [PK] calendar_date (TEXT)   │───( 1 : 1 Consolida )───────────────────────┤
+  │   vo2_max_running (REAL)      │                                             │
+  │   vo2_max_precise (REAL)      │                                             │
+  └───────────────────────────────┘                                             │
+                                                                                │
+  ┌───────────────────────────────┐                                             │
+  │ activities                    │                                             │
+  ├───────────────────────────────┤                                             │
+  │ * [PK] activity_id (INTEGER)  │                                             │
+  │   [FK] calendar_date (TEXT)   │───( N : 1 Agrega )──────────────────────────┘
+  │   activity_name (TEXT)        │
+  │   activity_type (TEXT)        │
+  │   distance_meters (REAL)      │
+  │   duration_seconds (REAL)     │
+  └───────────────────────────────┘
+                                                 │ (Unión Temporal Histórica)
+                                                 ▼
+  ┌────────────────────────────────────────────────────────────────────────────────────────┐
+  │ VISTA SQL: unified_biometrics_timeline                                                 │
+  ├────────────────────────────────────────────────────────────────────────────────────────┤
+  │ * calendar_date (TEXT)                                                                 │
+  │   record_type (TEXT: 'ACTUAL' | 'FORECAST')                                            │
+  │   resting_heart_rate, hrv_rmssd, daily_avg_stress, sleep_score, total_steps, calorías... │
+  └──────────────────────────────────────────────▲─────────────────────────────────────────┘
+                                                 │ (Empalme de Proyecciones Futuras)
+  ┌──────────────────────────────────────────────┴─────────────────────────────────────────┐
+  │ consolidated_biometric_forecasts                                                       │
+  ├────────────────────────────────────────────────────────────────────────────────────────┤
+  │ * [PK] target_date (TEXT)            (Fecha proyectada a futuro)                       │
+  │ * [PK] metric (TEXT)                 (Métrica pronosticada: RHR, HRV, Estrés, Pasos...) │
+  │   forecast_generated_date (TEXT)     (Fecha de origen de telemetría cerrada)           │
+  │   predicted_value (REAL)             (Valor central proyectado por el ensamble ML)     │
+  │   ci_lower, ci_upper (REAL)          (Intervalos de confianza al 95%)                  │
+  │   model_name (TEXT)                  (Ensemble_Prophet_HoltWinters, etc.)              │
+  └────────────────────────────────────────────────────────────────────────────────────────┘
+
+DETALLE DE ENTIDADES Y CAMPOS CLAVE:
+
++--- [TABLA] activities (Filas: 45 | PK: activity_id) --------------------------------+
+|  [PK] activity_id                      (INTEGER)          NULL                     |
+|       calendar_date                    (TEXT)             NULL                     |
+|       activity_name                    (TEXT)             NULL                     |
+|       activity_type                    (TEXT)             NULL                     |
+|       distance_meters                  (REAL)             NULL                     |
+|       duration_seconds                 (REAL)             NULL                     |
+|       elapsed_duration_seconds         (REAL)             NULL                     |
+|       elevation_gain_meters            (REAL)             NULL                     |
+|       avg_speed_mps                    (REAL)             NULL                     |
+|       max_speed_mps                    (REAL)             NULL                     |
+|       avg_hr                           (INTEGER)          NULL                     |
+|       max_hr                           (INTEGER)          NULL                     |
+|       calories                         (REAL)             NULL                     |
+|       fit_zip_path                     (TEXT)             NULL                     |
+|       start_time_local                 (TEXT)             NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] consolidated_biometric_forecasts (Filas: 58 | PK: target_date, metric) --+
+|       forecast_generated_date          (TEXT)             NOT NULL                 |
+|  [PK] target_date                      (TEXT)             NOT NULL                 |
+|  [PK] metric                           (TEXT)             NOT NULL                 |
+|       predicted_value                  (REAL)             NOT NULL                 |
+|       ci_lower                         (REAL)             NOT NULL                 |
+|       ci_upper                         (REAL)             NOT NULL                 |
+|       model_name                       (TEXT)             NOT NULL                 |
+|       is_locked                        (INTEGER)          NOT NULL                 |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] consolidated_daily_actuals (Filas: 30 | PK: calendar_date) --------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       total_steps                      (INTEGER)          NULL                     |
+|       total_distance_meters            (REAL)             NULL                     |
+|       floors_ascended                  (REAL)             NULL                     |
+|       active_kilocalories              (REAL)             NULL                     |
+|       resting_kilocalories             (REAL)             NULL                     |
+|       total_kilocalories               (REAL)             NULL                     |
+|       resting_heart_rate               (INTEGER)          NULL                     |
+|       min_heart_rate                   (INTEGER)          NULL                     |
+|       max_heart_rate                   (INTEGER)          NULL                     |
+|       daily_avg_stress                 (INTEGER)          NULL                     |
+|       daily_max_stress                 (INTEGER)          NULL                     |
+|       rest_stress_duration_sec         (INTEGER)          NULL                     |
+|       activity_stress_duration_sec     (INTEGER)          NULL                     |
+|       low_stress_duration_sec          (INTEGER)          NULL                     |
+|       medium_stress_duration_sec       (INTEGER)          NULL                     |
+|       high_stress_duration_sec         (INTEGER)          NULL                     |
+|       sleep_score                      (INTEGER)          NULL                     |
+|       total_sleep_seconds              (INTEGER)          NULL                     |
+|       deep_sleep_seconds               (INTEGER)          NULL                     |
+|       light_sleep_seconds              (INTEGER)          NULL                     |
+|       rem_sleep_seconds                (INTEGER)          NULL                     |
+|       awake_sleep_seconds              (INTEGER)          NULL                     |
+|       avg_spo2                         (REAL)             NULL                     |
+|       lowest_spo2                      (REAL)             NULL                     |
+|       avg_respiration                  (REAL)             NULL                     |
+|       avg_sleep_stress                 (REAL)             NULL                     |
+|       hrv_rmssd                        (REAL)             NULL                     |
+|       hrv_weekly_avg                   (REAL)             NULL                     |
+|       hrv_status                       (TEXT)             NULL                     |
+|       hrv_baseline_low                 (REAL)             NULL                     |
+|       hrv_baseline_balanced_low        (REAL)             NULL                     |
+|       hrv_baseline_balanced_upper      (REAL)             NULL                     |
+|       vo2_max_running                  (REAL)             NULL                     |
+|       vo2_max_precise                  (REAL)             NULL                     |
+|       fitness_age                      (REAL)             NULL                     |
+|       chronological_age                (REAL)             NULL                     |
+|       achievable_fitness_age           (REAL)             NULL                     |
+|       fitness_age_gap                  (REAL)             NULL                     |
+|       body_fat_pct                     (REAL)             NULL                     |
+|       vigorous_minutes_avg             (REAL)             NULL                     |
+|       target_potential_age             (REAL)             NULL                     |
+|       activity_count                   (INTEGER)          NULL                     |
+|       total_activity_duration_sec      (REAL)             NULL                     |
+|       total_activity_distance_m        (REAL)             NULL                     |
+|       total_activity_calories          (REAL)             NULL                     |
+|       avg_activity_hr                  (REAL)             NULL                     |
+|       max_activity_hr                  (REAL)             NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] daily_summaries (Filas: 30 | PK: calendar_date) -------------------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       total_steps                      (INTEGER)          NULL                     |
+|       total_distance_meters            (REAL)             NULL                     |
+|       active_kilocalories              (REAL)             NULL                     |
+|       total_kilocalories               (REAL)             NULL                     |
+|       resting_heart_rate               (INTEGER)          NULL                     |
+|       min_heart_rate                   (INTEGER)          NULL                     |
+|       max_heart_rate                   (INTEGER)          NULL                     |
+|       avg_stress_level                 (INTEGER)          NULL                     |
+|       max_stress_level                 (INTEGER)          NULL                     |
+|       floors_ascended                  (REAL)             NULL                     |
+|       vigorous_minutes                 (INTEGER)          NULL                     |
+|       moderate_minutes                 (INTEGER)          NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] fitness_age_records (Filas: 30 | PK: calendar_date) ---------------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       chronological_age                (REAL)             NULL                     |
+|       fitness_age                      (REAL)             NULL                     |
+|       achievable_fitness_age           (REAL)             NULL                     |
+|       fitness_age_gap                  (REAL)             NULL                     |
+|       body_fat_pct                     (REAL)             NULL                     |
+|       rhr_component                    (REAL)             NULL                     |
+|       vigorous_minutes_avg             (REAL)             NULL                     |
+|       vigorous_days_avg                (REAL)             NULL                     |
+|       target_potential_age             (REAL)             NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] hrv_records (Filas: 27 | PK: calendar_date) -----------------------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       last_night_avg                   (REAL)             NULL                     |
+|       weekly_avg                       (REAL)             NULL                     |
+|       last_night_5min_high             (REAL)             NULL                     |
+|       status                           (TEXT)             NULL                     |
+|       baseline_low                     (REAL)             NULL                     |
+|       baseline_balanced_low            (REAL)             NULL                     |
+|       baseline_balanced_upper          (REAL)             NULL                     |
+|       feedback_phrase                  (TEXT)             NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] max_metrics (Filas: 3 | PK: calendar_date) ------------------------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       vo2_max_running                  (REAL)             NULL                     |
+|       vo2_max_precise                  (REAL)             NULL                     |
+|       fitness_age                      (INTEGER)          NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] sleep_records (Filas: 30 | PK: calendar_date) ---------------------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       sleep_score                      (INTEGER)          NULL                     |
+|       total_sleep_seconds              (INTEGER)          NULL                     |
+|       deep_sleep_seconds               (INTEGER)          NULL                     |
+|       light_sleep_seconds              (INTEGER)          NULL                     |
+|       rem_sleep_seconds                (INTEGER)          NULL                     |
+|       awake_sleep_seconds              (INTEGER)          NULL                     |
+|       nap_seconds                      (INTEGER)          NULL                     |
+|       avg_spo2                         (REAL)             NULL                     |
+|       lowest_spo2                      (REAL)             NULL                     |
+|       avg_respiration                  (REAL)             NULL                     |
+|       avg_sleep_stress                 (REAL)             NULL                     |
+|       avg_heart_rate                   (REAL)             NULL                     |
+|       sleep_start_local                (TEXT)             NULL                     |
+|       sleep_end_local                  (TEXT)             NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [TABLA] stress_records (Filas: 30 | PK: calendar_date) --------------------------+
+|  [PK] calendar_date                    (TEXT)             NULL                     |
+|       avg_stress_level                 (INTEGER)          NULL                     |
+|       max_stress_level                 (INTEGER)          NULL                     |
+|       rest_stress_duration_sec         (INTEGER)          NULL                     |
+|       activity_stress_duration_sec     (INTEGER)          NULL                     |
+|       low_stress_duration_sec          (INTEGER)          NULL                     |
+|       medium_stress_duration_sec       (INTEGER)          NULL                     |
+|       high_stress_duration_sec         (INTEGER)          NULL                     |
+|       updated_at                       (TEXT)             NULL                     |
++-------------------------------------------------------------------------------------+
+
++--- [VISTA] unified_biometrics_timeline (Filas: 30 | PK: Sin PK) --------------------+
+|       calendar_date                    (TEXT)             NULL                     |
+|       record_type                      (UNSPECIFIED)      NULL                     |
+|       resting_heart_rate               (BLOB)             NULL                     |
+|       hrv_rmssd                        (BLOB)             NULL                     |
+|       daily_avg_stress                 (BLOB)             NULL                     |
+|       sleep_score                      (BLOB)             NULL                     |
+|       total_steps                      (BLOB)             NULL                     |
+|       active_kilocalories              (BLOB)             NULL                     |
+|       total_kilocalories               (BLOB)             NULL                     |
+|       fitness_age                      (BLOB)             NULL                     |
+|       chronological_age                (REAL)             NULL                     |
+|       fitness_age_gap                  (BLOB)             NULL                     |
+|       updated_at                       (BLOB)             NULL                     |
++-------------------------------------------------------------------------------------+
+
+==========================================================================================
+FIN DEL DIAGRAMA ENTIDAD-RELACIÓN
+==========================================================================================
+
+=========================================================================================================
+
+=========================================================================================================
+        MAPEO DETALLADO DE COLUMNAS, TIPOS DE DATOS TÉCNICOS Y EJEMPLOS REALES
+                      GARMIN PERSONAL INSIGHT AGENT (CLOUD R2)
+=========================================================================================================
+Fecha de Generación: 2026-10-01 10:28:23 UTC
+Muestras Extraídas por Columna: TOP 3 valores reales distintos no nulos
+
+=========================================================================================================
+BASE DE DATOS [1/2]: weekly_biometric_forecasts.db
+Ubicación en Storage: forecast/weekly_biometric_forecasts.db
+Tamaño Físico:        139,264 bytes (136.0 KB)
+=========================================================================================================
+
+---------------------------------------------------------------------------------------------------------
+[1.1] TABLA: biometric_forecasts (Total Registros: 316 | Columnas: 9)
+      Clave Primaria: target_date, metric
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | forecast_generated_date        | TEXT           | NOT NULL           | '2026-09-18', '2026-09-20', '2026-09-21'
+1   | target_date                    | TEXT           | PRIMARY KEY, NOT NULL | '2026-09-18', '2026-09-19', '2026-09-20'
+2   | metric                         | TEXT           | PK (part 2), NOT NULL | 'active_kilocalories', 'daily_avg_stress', 'fitness_age'
+3   | predicted_value                | REAL           | NOT NULL           | 60.49, 167.1, 108.9
+4   | ci_lower                       | REAL           | NOT NULL           | 60.01, 163.2, 108.5
+5   | ci_upper                       | REAL           | NOT NULL           | 60.97, 170.9, 109.3
+6   | model_name                     | TEXT           | NOT NULL           | 'Ensemble_Prophet_HoltWinters'
+7   | is_locked                      | INTEGER        | NOT NULL, DEFAULT 1 | 1
+8   | created_at                     | TEXT           | NOT NULL           | '2026-09-18T16:31:54.895059+00:00', '2026-09-18T16:32:12.694173+00:00', '2026-09-21T15:18:54.416962+00:00'
+
+
+---------------------------------------------------------------------------------------------------------
+[1.2] TABLA: forecast_metadata (Total Registros: 115 | Columnas: 10)
+      Clave Primaria: run_id
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | run_id                         | INTEGER        | PRIMARY KEY        | 1, 2, 3
+1   | forecast_generated_date        | TEXT           | NOT NULL           | '2026-09-18', '2026-09-21', '2026-09-20'
+2   | horizon_start                  | TEXT           | NOT NULL           | '2026-09-18', '2026-09-21', '2026-09-20'
+3   | horizon_end                    | TEXT           | NOT NULL           | '2026-09-27', '2026-10-04', '2026-10-11'
+4   | total_horizon_days             | INTEGER        | NOT NULL           | 10, 14, 8
+5   | metrics_count                  | INTEGER        | NOT NULL           | 12, 14
+6   | metrics_list                   | TEXT           | NOT NULL           | '["resting_heart_rate", "running_avg_hr"...', '["resting_heart_rate", "running_avg_hr"...'
+7   | new_records_added              | INTEGER        | NOT NULL           | 12, 108, 0
+8   | total_locked_records           | INTEGER        | NOT NULL           | 120, 204, 232
+9   | created_at                     | TEXT           | NOT NULL           | '2026-09-18T16:31:54.895059+00:00', '2026-09-18T16:32:12.694173+00:00', '2026-09-18T16:32:46.212568+00:00'
+
+
+=========================================================================================================
+BASE DE DATOS [2/2]: garmin_history.db
+Ubicación en Storage: processed/garmin_history.db
+Tamaño Físico:        147,456 bytes (144.0 KB)
+=========================================================================================================
+
+---------------------------------------------------------------------------------------------------------
+[2.1] TABLA: activities (Total Registros: 45 | Columnas: 16)
+      Clave Primaria: activity_id
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | activity_id                    | INTEGER        | PRIMARY KEY        | 123456789, 24126812790, 24145937657
+1   | calendar_date                  | TEXT           | NULLABLE           | '2026-08-11', '2026-08-12', '2026-08-13'
+2   | activity_name                  | TEXT           | NULLABLE           | 'Morning Interval Run', 'Strength', 'Entrenamiento en cinta'
+3   | activity_type                  | TEXT           | NULLABLE           | 'indoor_cycling', 'lap_swimming', 'multi_sport'
+4   | distance_meters                | REAL           | NULLABLE           | 10000, 0, 124
+5   | duration_seconds               | REAL           | NULLABLE           | 1617, 102.9, 2647
+6   | elapsed_duration_seconds       | REAL           | NULLABLE           | 1617, 102.9, 2772
+7   | elevation_gain_meters          | REAL           | NULLABLE           | 0, 16, 102
+8   | avg_speed_mps                  | REAL           | NULLABLE           | 0, 1.205, 1.263
+9   | max_speed_mps                  | REAL           | NULLABLE           | 2.034, 1.959, 7.026
+10  | avg_hr                         | INTEGER        | NULLABLE           | 90, 88, 85
+11  | max_hr                         | INTEGER        | NULLABLE           | 131, 93, 99
+12  | calories                       | REAL           | NULLABLE           | 99, 7, 154
+13  | fit_zip_path                   | TEXT           | NULLABLE           | '/private/var/folders/pd/pqtl0_9124j1fx_...', 'data/raw/2026-08-11/activities/activity...', 'data/raw/2026-08-11/activities/activity...'
+14  | start_time_local               | TEXT           | NULLABLE           | '2026-09-14 07:30:00', '2026-08-11 13:41:28', '2026-08-11 17:46:20'
+15  | updated_at                     | TEXT           | NULLABLE           | '2026-09-21T16:49:14.811335', '2026-09-21T15:09:36.959179', '2026-09-21T15:09:36.541584'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.2] TABLA: consolidated_biometric_forecasts (Total Registros: 58 | Columnas: 9)
+      Clave Primaria: target_date, metric
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | forecast_generated_date        | TEXT           | NOT NULL           | '2026-09-18', '2026-09-20', '2026-09-21'
+1   | target_date                    | TEXT           | PRIMARY KEY, NOT NULL | '2026-09-14', '2026-09-15', '2026-09-16'
+2   | metric                         | TEXT           | PK (part 2), NOT NULL | 'resting_heart_rate', 'total_sleep_hours', 'active_kilocalories'
+3   | predicted_value                | REAL           | NOT NULL           | 398.4, 171.8, 472.8
+4   | ci_lower                       | REAL           | NOT NULL           | 224.9, 0, 219
+5   | ci_upper                       | REAL           | NOT NULL           | 571.9, 345.2, 715.4
+6   | model_name                     | TEXT           | NOT NULL           | 'Ensemble_Prophet_HoltWinters'
+7   | is_locked                      | INTEGER        | NOT NULL, DEFAULT 1 | 1
+8   | updated_at                     | TEXT           | NULLABLE           | '2026-09-21T16:49:15.513836', '2026-09-21T16:49:15.215696'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.3] TABLA: consolidated_daily_actuals (Total Registros: 30 | Columnas: 49)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | total_steps                    | INTEGER        | NULLABLE           | 9577, 9240, 7241
+2   | total_distance_meters          | REAL           | NULLABLE           | 7625, 7357, 5765
+3   | floors_ascended                | REAL           | NULLABLE           | 8.79, 7.537, 0.7595
+4   | active_kilocalories            | REAL           | NULLABLE           | 241, 258, 327
+5   | resting_kilocalories           | REAL           | NULLABLE           | 1876, 1671
+6   | total_kilocalories             | REAL           | NULLABLE           | 2117, 2134, 2203
+7   | resting_heart_rate             | INTEGER        | NULLABLE           | 58, 57, 59
+8   | min_heart_rate                 | INTEGER        | NULLABLE           | 54, 56, 55
+9   | max_heart_rate                 | INTEGER        | NULLABLE           | 119, 125, 147
+10  | daily_avg_stress               | INTEGER        | NULLABLE           | 28, 30, 32
+11  | daily_max_stress               | INTEGER        | NULLABLE           | 95, 87, 96
+12  | rest_stress_duration_sec       | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+13  | activity_stress_duration_sec   | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+14  | low_stress_duration_sec        | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+15  | medium_stress_duration_sec     | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+16  | high_stress_duration_sec       | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+17  | sleep_score                    | INTEGER        | NULLABLE           | 83, 81, 90
+18  | total_sleep_seconds            | INTEGER        | NULLABLE           | 24600, 22999, 25920
+19  | deep_sleep_seconds             | INTEGER        | NULLABLE           | 6240, 7560, 7680
+20  | light_sleep_seconds            | INTEGER        | NULLABLE           | 12540, 11160, 12780
+21  | rem_sleep_seconds              | INTEGER        | NULLABLE           | 5820, 4320, 5460
+22  | awake_sleep_seconds            | INTEGER        | NULLABLE           | 120, 0, 60
+23  | avg_spo2                       | REAL           | NULLABLE           | 97, 96, 98
+24  | lowest_spo2                    | REAL           | NULLABLE           | 89, 90, 91
+25  | avg_respiration                | REAL           | NULLABLE           | 14, 13, 15
+26  | avg_sleep_stress               | REAL           | NULLABLE           | 23, 19, 17
+27  | hrv_rmssd                      | REAL           | NULLABLE           | 37, 42, 38
+28  | hrv_weekly_avg                 | REAL           | NULLABLE           | 39, 40, 38
+29  | hrv_status                     | TEXT           | NULLABLE           | 'BALANCED', 'UNBALANCED'
+30  | hrv_baseline_low               | REAL           | NULLABLE           | 36
+31  | hrv_baseline_balanced_low      | REAL           | NULLABLE           | 38, 39
+32  | hrv_baseline_balanced_upper    | REAL           | NULLABLE           | 49, 48, 47
+33  | vo2_max_running                | REAL           | NULLABLE           | 52, 51
+34  | vo2_max_precise                | REAL           | NULLABLE           | 51.7, 51.2, 51.3
+35  | fitness_age                    | REAL           | NULLABLE           | 34.88, 34.76, 34.31
+36  | chronological_age              | REAL           | NULLABLE           | 40
+37  | achievable_fitness_age         | REAL           | NULLABLE           | 34.5
+38  | fitness_age_gap                | REAL           | NULLABLE           | 5.12, 5.24, 5.69
+39  | body_fat_pct                   | REAL           | NULLABLE           | 16.6
+40  | vigorous_minutes_avg           | REAL           | NULLABLE           | 33, 38, 38.1
+41  | target_potential_age           | REAL           | NULLABLE           | 33.93
+42  | activity_count                 | INTEGER        | NULLABLE           | 0, 1, 3
+43  | total_activity_duration_sec    | REAL           | NULLABLE           | 0, 4306, 4284
+44  | total_activity_distance_m      | REAL           | NULLABLE           | 0, 1e+04, 1.556e+04
+45  | total_activity_calories        | REAL           | NULLABLE           | 0, 376, 572
+46  | avg_activity_hr                | REAL           | NULLABLE           | 112, 141, 109
+47  | max_activity_hr                | REAL           | NULLABLE           | 159, 176, 144
+48  | updated_at                     | TEXT           | NULLABLE           | '2026-10-01T04:01:26.481502'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.4] TABLA: daily_summaries (Total Registros: 30 | Columnas: 14)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | total_steps                    | INTEGER        | NULLABLE           | 9577, 9240, 7241
+2   | total_distance_meters          | REAL           | NULLABLE           | 7625, 7357, 5765
+3   | active_kilocalories            | REAL           | NULLABLE           | 241, 258, 327
+4   | total_kilocalories             | REAL           | NULLABLE           | 2117, 2134, 2203
+5   | resting_heart_rate             | INTEGER        | NULLABLE           | 58, 57, 59
+6   | min_heart_rate                 | INTEGER        | NULLABLE           | 54, 56, 55
+7   | max_heart_rate                 | INTEGER        | NULLABLE           | 119, 125, 147
+8   | avg_stress_level               | INTEGER        | NULLABLE           | 28, 30, 32
+9   | max_stress_level               | INTEGER        | NULLABLE           | 95, 87, 96
+10  | floors_ascended                | REAL           | NULLABLE           | 8.79, 7.537, 0.7595
+11  | vigorous_minutes               | INTEGER        | NULLABLE           | 0, 30, 29
+12  | moderate_minutes               | INTEGER        | NULLABLE           | 0, 5, 14
+13  | updated_at                     | TEXT           | NULLABLE           | '2026-09-23T03:12:29.489736', '2026-09-24T03:02:41.873087', '2026-09-25T03:19:47.835723'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.5] TABLA: fitness_age_records (Total Registros: 30 | Columnas: 11)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | chronological_age              | REAL           | NULLABLE           | 40
+2   | fitness_age                    | REAL           | NULLABLE           | 34.88, 34.76, 34.31
+3   | achievable_fitness_age         | REAL           | NULLABLE           | 34.5
+4   | fitness_age_gap                | REAL           | NULLABLE           | 5.12, 5.24, 5.69
+5   | body_fat_pct                   | REAL           | NULLABLE           | 16.6
+6   | rhr_component                  | REAL           | NULLABLE           | 58, 57
+7   | vigorous_minutes_avg           | REAL           | NULLABLE           | 38.1, 38.6, 34.5
+8   | vigorous_days_avg              | REAL           | NULLABLE           | 1.3, 1, 1.1
+9   | target_potential_age           | REAL           | NULLABLE           | 33.93
+10  | updated_at                     | TEXT           | NULLABLE           | '2026-09-29T04:06:25.447756', '2026-10-01T04:01:16.964082', '2026-10-01T04:01:17.734489'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.6] TABLA: hrv_records (Total Registros: 27 | Columnas: 10)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | last_night_avg                 | REAL           | NULLABLE           | 37, 42, 38
+2   | weekly_avg                     | REAL           | NULLABLE           | 39, 40, 38
+3   | last_night_5min_high           | REAL           | NULLABLE           | 48, 67, 50
+4   | status                         | TEXT           | NULLABLE           | 'BALANCED', 'UNBALANCED'
+5   | baseline_low                   | REAL           | NULLABLE           | 36
+6   | baseline_balanced_low          | REAL           | NULLABLE           | 38, 39
+7   | baseline_balanced_upper        | REAL           | NULLABLE           | 49, 48, 47
+8   | feedback_phrase                | TEXT           | NULLABLE           | 'HRV_BALANCED_1', 'HRV_BALANCED_6', 'HRV_BALANCED_7'
+9   | updated_at                     | TEXT           | NULLABLE           | '2026-09-23T03:12:29.200468', '2026-09-24T03:02:41.570661', '2026-09-25T03:19:47.630129'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.7] TABLA: max_metrics (Total Registros: 3 | Columnas: 5)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-07', '2026-09-14', '2026-09-26'
+1   | vo2_max_running                | REAL           | NULLABLE           | 52, 51
+2   | vo2_max_precise                | REAL           | NULLABLE           | 51.7, 51.2, 51.3
+3   | fitness_age                    | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+4   | updated_at                     | TEXT           | NULLABLE           | '2026-09-29T04:06:25.382322', '2026-09-22T03:12:28.868755', '2026-10-01T04:01:12.599873'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.8] TABLA: sleep_records (Total Registros: 30 | Columnas: 16)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | sleep_score                    | INTEGER        | NULLABLE           | 83, 81, 90
+2   | total_sleep_seconds            | INTEGER        | NULLABLE           | 24600, 22999, 25920
+3   | deep_sleep_seconds             | INTEGER        | NULLABLE           | 6240, 7560, 7680
+4   | light_sleep_seconds            | INTEGER        | NULLABLE           | 12540, 11160, 12780
+5   | rem_sleep_seconds              | INTEGER        | NULLABLE           | 5820, 4320, 5460
+6   | awake_sleep_seconds            | INTEGER        | NULLABLE           | 120, 0, 60
+7   | nap_seconds                    | INTEGER        | NULLABLE           | 0, 3000, 4140
+8   | avg_spo2                       | REAL           | NULLABLE           | 97, 96, 98
+9   | lowest_spo2                    | REAL           | NULLABLE           | 89, 90, 91
+10  | avg_respiration                | REAL           | NULLABLE           | 14, 13, 15
+11  | avg_sleep_stress               | REAL           | NULLABLE           | 23, 19, 17
+12  | avg_heart_rate                 | REAL           | NULLABLE           | 61, 62, 60
+13  | sleep_start_local              | TEXT           | NULLABLE           | '1788824964000', '1788910014000', '1788998653000'
+14  | sleep_end_local                | TEXT           | NULLABLE           | '1788849684000', '1788933013000', '1789024573000'
+15  | updated_at                     | TEXT           | NULLABLE           | '2026-09-23T03:12:29.092723', '2026-09-24T03:02:41.422684', '2026-09-25T03:19:47.556802'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.9] TABLA: stress_records (Total Registros: 30 | Columnas: 9)
+      Clave Primaria: calendar_date
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | PRIMARY KEY        | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | avg_stress_level               | INTEGER        | NULLABLE           | 28, 30, 32
+2   | max_stress_level               | INTEGER        | NULLABLE           | 95, 87, 96
+3   | rest_stress_duration_sec       | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+4   | activity_stress_duration_sec   | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+5   | low_stress_duration_sec        | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+6   | medium_stress_duration_sec     | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+7   | high_stress_duration_sec       | INTEGER        | NULLABLE           | [Sin registros / Todos NULL]
+8   | updated_at                     | TEXT           | NULLABLE           | '2026-09-23T03:12:29.371254', '2026-09-24T03:02:41.744824', '2026-09-25T03:19:47.740980'
+
+
+---------------------------------------------------------------------------------------------------------
+[2.10] VISTA SQL: unified_biometrics_timeline (Total Registros: 30 | Columnas: 13)
+---------------------------------------------------------------------------------------------------------
+#   | Columna                        | Tipo Técnico   | Restricción        | TOP 3 Ejemplos del Dato Contenido
+---------------------------------------------------------------------------------------------------------
+0   | calendar_date                  | TEXT           | NULLABLE           | '2026-09-01', '2026-09-02', '2026-09-03'
+1   | record_type                    | UNSPECIFIED    | NULLABLE           | 'ACTUAL'
+2   | resting_heart_rate             | BLOB           | NULLABLE           | 60, 61, 58
+3   | hrv_rmssd                      | BLOB           | NULLABLE           | 33, 38, 41
+4   | daily_avg_stress               | BLOB           | NULLABLE           | 31, 30, 33
+5   | sleep_score                    | BLOB           | NULLABLE           | 70, 73, 74
+6   | total_steps                    | BLOB           | NULLABLE           | 10732, 4648, 13525
+7   | active_kilocalories            | BLOB           | NULLABLE           | 275, 91, 747
+8   | total_kilocalories             | BLOB           | NULLABLE           | 2151, 1967, 2623
+9   | fitness_age                    | BLOB           | NULLABLE           | 34.88, 34.76, 34.31
+10  | chronological_age              | REAL           | NULLABLE           | 40
+11  | fitness_age_gap                | BLOB           | NULLABLE           | 5.12, 5.24, 5.69
+12  | updated_at                     | BLOB           | NULLABLE           | '2026-10-01T04:01:26.481502'
+
+
+=========================================================================================================
+FIN DEL MAPEO DE COLUMNAS Y TIPOS TÉCNICOS
+=========================================================================================================
