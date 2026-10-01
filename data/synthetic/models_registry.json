@@ -1,0 +1,69 @@
+{
+  "updated_at": "2026-09-21T18:05:56.650214+00:00",
+  "total_active_models": 9,
+  "models": [
+    {
+      "model_id": "gemma-4-26b-a4b-it",
+      "status": "active",
+      "probe_latency_ms": 2650,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:04:15.689877+00:00"
+    },
+    {
+      "model_id": "gemma-4-31b-it",
+      "status": "active",
+      "probe_latency_ms": 37250,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:04:52.940516+00:00"
+    },
+    {
+      "model_id": "gemini-flash-lite-latest",
+      "status": "active",
+      "probe_latency_ms": 31693,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:28.967843+00:00"
+    },
+    {
+      "model_id": "gemini-3-flash-preview",
+      "status": "active",
+      "probe_latency_ms": 939,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:30.174052+00:00"
+    },
+    {
+      "model_id": "gemini-3.1-flash-lite-preview",
+      "status": "active",
+      "probe_latency_ms": 1671,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:31.993778+00:00"
+    },
+    {
+      "model_id": "gemini-3.1-flash-lite",
+      "status": "active",
+      "probe_latency_ms": 610,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:32.604115+00:00"
+    },
+    {
+      "model_id": "gemini-3.5-flash-lite",
+      "status": "active",
+      "probe_latency_ms": 8297,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:43.662934+00:00"
+    },
+    {
+      "model_id": "gemini-3.6-flash",
+      "status": "active",
+      "probe_latency_ms": 5784,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:49.754948+00:00"
+    },
+    {
+      "model_id": "gemini-3.8-flash",
+      "status": "active",
+      "probe_latency_ms": 1946,
+      "probe_response": "LISTO",
+      "tested_at": "2026-09-21T18:05:52.981242+00:00"
+    }
+  ]
+}
