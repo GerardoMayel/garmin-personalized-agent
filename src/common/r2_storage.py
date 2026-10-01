@@ -170,6 +170,14 @@ class R2StorageClient:
         """Restore SQLite database from Cloudflare R2."""
         return self.download_file(remote_key, local_db_path)
 
+    def restore_predictions(
+        self,
+        local_db_path: str | Path = "data/processed/predictions/weekly_biometric_forecasts.db",
+        remote_key: str = "forecast/weekly_biometric_forecasts.db",
+    ) -> bool:
+        """Restore weekly biometric forecasts SQLite database from Cloudflare R2."""
+        return self.download_file(remote_key, local_db_path)
+
     def sync_raw_directory(
         self,
         raw_dir: str | Path = DEFAULT_RAW_DIR,
@@ -263,6 +271,207 @@ class R2StorageClient:
             logger.error(f"Error eliminando prefijo '{remote_prefix}' en R2: {e}")
             return deleted_count
 
+    def sync_dvc_dataset(
+        self,
+        dvc_dir: str | Path = "data/dvc",
+        remote_prefix: str = "dvc",
+    ) -> dict[str, int]:
+        """Upload clean versioned DVC dataset files (.parquet and .csv) to R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(dvc_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio DVC no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.glob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            remote_key = f"{remote_prefix}/{file_path.name}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {dvc_dir} completada: {stats}")
+        return stats
+
+    def sync_predictions(
+        self,
+        predictions_dir: str | Path = "data/processed/predictions",
+        remote_prefix: str = "forecast",
+    ) -> dict[str, int]:
+        """Upload weekly biometric predictions table (.parquet and .csv) to R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(predictions_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio de predicciones no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.glob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            remote_key = f"{remote_prefix}/{file_path.name}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {predictions_dir} completada: {stats}")
+        return stats
+
+    def sync_artifacts(
+        self,
+        artifacts_dir: str | Path = "data/artifacts",
+        remote_prefix: str = "artifacts",
+    ) -> dict[str, int]:
+        """Recursively upload pipelines, metadata, and model artifacts to R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(artifacts_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio de artefactos no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.rglob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            rel_path = file_path.relative_to(root_path)
+            remote_key = f"{remote_prefix}/{rel_path.as_posix()}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {artifacts_dir} completada: {stats}")
+        return stats
+
+    def sync_knowledge_base(
+        self,
+        kb_dir: str | Path = "data/knowledge_base",
+        remote_prefix: str = "knowledge_base",
+    ) -> dict[str, int]:
+        """Recursively upload knowledge base documents (PDFs) to Cloudflare R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(kb_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio knowledge_base no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.rglob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            rel_path = file_path.relative_to(root_path)
+            remote_key = f"{remote_prefix}/{rel_path.as_posix()}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {kb_dir} a R2 completada: {stats}")
+        return stats
+
+    def restore_knowledge_base(
+        self,
+        kb_dir: str | Path = "data/knowledge_base",
+        remote_prefix: str = "knowledge_base",
+    ) -> dict[str, int]:
+        """Download all knowledge base files from Cloudflare R2 into local directory."""
+        stats = {"downloaded": 0, "failed": 0, "skipped": 0}
+        if not self.is_configured():
+            logger.error("R2 no configurado para restaurar knowledge_base.")
+            return stats
+
+        try:
+            assert self._client is not None
+            paginator = self._client.get_paginator("list_objects_v2")
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=f"{remote_prefix}/")
+
+            dest_root = Path(kb_dir)
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/") or key.endswith(".gitkeep"):
+                        continue
+                    rel_path = key[len(remote_prefix) + 1 :]
+                    local_dest = dest_root / rel_path
+                    if self.download_file(key, local_dest):
+                        stats["downloaded"] += 1
+                    else:
+                        stats["failed"] += 1
+
+            logger.info(f"Restauración de knowledge_base desde R2 completada: {stats}")
+            return stats
+        except Exception as e:
+            logger.error(f"Error restaurando knowledge_base desde R2: {e}")
+            return stats
+
+    def sync_processed_chunks(
+        self,
+        chunks_dir: str | Path = "data/knowledge_base/processed_chunks",
+        remote_prefix: str = "knowledge_base/processed_chunks",
+    ) -> dict[str, int]:
+        """Upload processed chunk datasets (.parquet) and ledger to Cloudflare R2."""
+        stats = {"uploaded": 0, "failed": 0, "skipped": 0}
+        root_path = Path(chunks_dir)
+
+        if not root_path.exists():
+            logger.warning(f"Directorio processed_chunks no existe: {root_path}")
+            return stats
+
+        for file_path in root_path.rglob("*"):
+            if not file_path.is_file() or file_path.name in {".gitkeep", ".DS_Store"}:
+                continue
+
+            rel_path = file_path.relative_to(root_path)
+            remote_key = f"{remote_prefix}/{rel_path.as_posix()}"
+            if self.upload_file(file_path, remote_key):
+                stats["uploaded"] += 1
+            else:
+                stats["failed"] += 1
+
+        logger.info(f"Sincronización de {chunks_dir} a R2 completada: {stats}")
+        return stats
+
+    def restore_processed_chunks(
+        self,
+        chunks_dir: str | Path = "data/knowledge_base/processed_chunks",
+        remote_prefix: str = "knowledge_base/processed_chunks",
+    ) -> dict[str, int]:
+        """Download processed chunks and ledger from Cloudflare R2 into local directory."""
+        stats = {"downloaded": 0, "failed": 0, "skipped": 0}
+        if not self.is_configured():
+            logger.error("R2 no configurado para restaurar processed_chunks.")
+            return stats
+
+        try:
+            assert self._client is not None
+            paginator = self._client.get_paginator("list_objects_v2")
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=f"{remote_prefix}/")
+
+            dest_root = Path(chunks_dir)
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/") or key.endswith(".gitkeep"):
+                        continue
+                    rel_path = key[len(remote_prefix) + 1 :]
+                    local_dest = dest_root / rel_path
+                    if self.download_file(key, local_dest):
+                        stats["downloaded"] += 1
+                    else:
+                        stats["failed"] += 1
+            logger.info(f"Restauración de {chunks_dir} completada: {stats}")
+            return stats
+        except Exception as e:
+            logger.error(f"Error restaurando processed_chunks desde R2: {e}")
+            return stats
 
 def main() -> None:
     """CLI manager for Cloudflare R2 operations."""
@@ -274,11 +483,47 @@ def main() -> None:
     parser.add_argument(
         "--restore-db", action="store_true", help="Download SQLite database from R2"
     )
+    parser.add_argument(
+        "--restore-forecast",
+        action="store_true",
+        help="Download weekly forecasts SQLite database from R2",
+    )
     parser.add_argument("--sync-raw", action="store_true", help="Upload data/raw/ partitions to R2")
     parser.add_argument(
         "--restore-raw",
         action="store_true",
         help="Download raw_data/ partitions from R2 into data/raw/",
+    )
+    parser.add_argument(
+        "--sync-dvc", action="store_true", help="Upload data/dvc/ clean dataset to R2"
+    )
+    parser.add_argument(
+        "--sync-forecast",
+        action="store_true",
+        help="Upload data/processed/predictions/ to forecast/ in R2",
+    )
+    parser.add_argument(
+        "--sync-artifacts", action="store_true", help="Upload data/artifacts/ to artifacts/ in R2"
+    )
+    parser.add_argument(
+        "--sync-kb",
+        action="store_true",
+        help="Upload data/knowledge_base/ to knowledge_base/ in R2",
+    )
+    parser.add_argument(
+        "--restore-kb",
+        action="store_true",
+        help="Download knowledge_base/ documents from R2 into data/knowledge_base/",
+    )
+    parser.add_argument(
+        "--sync-chunks",
+        action="store_true",
+        help="Upload data/knowledge_base/processed_chunks/ to R2",
+    )
+    parser.add_argument(
+        "--restore-chunks",
+        action="store_true",
+        help="Download processed_chunks/ datasets and ledger from R2 into data/knowledge_base/processed_chunks/",
     )
     parser.add_argument(
         "--db-path", type=Path, default=DEFAULT_DB_PATH, help="Path to SQLite database"
@@ -307,6 +552,10 @@ def main() -> None:
         ok = client.restore_database(local_db_path=args.db_path)
         sys.exit(0 if ok else 1)
 
+    if args.restore_forecast:
+        ok = client.restore_predictions()
+        sys.exit(0 if ok else 1)
+
     if args.sync_raw:
         res = client.sync_raw_directory()
         print(f"Resultado de sincronización raw: {res}")
@@ -315,6 +564,41 @@ def main() -> None:
     if args.restore_raw:
         res = client.restore_raw_directory()
         print(f"Resultado de restauración raw desde R2: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_dvc:
+        res = client.sync_dvc_dataset()
+        print(f"Resultado de sincronización dvc: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_forecast:
+        res = client.sync_predictions(remote_prefix="forecast")
+        print(f"Resultado de sincronización forecast: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_artifacts:
+        res = client.sync_artifacts()
+        print(f"Resultado de sincronización artifacts: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_kb:
+        res = client.sync_knowledge_base()
+        print(f"Resultado de sincronización knowledge_base a R2: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.restore_kb:
+        res = client.restore_knowledge_base()
+        print(f"Resultado de restauración knowledge_base desde R2: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.sync_chunks:
+        res = client.sync_processed_chunks()
+        print(f"Resultado de sincronización processed_chunks a R2: {res}")
+        sys.exit(0 if res["failed"] == 0 else 1)
+
+    if args.restore_chunks:
+        res = client.restore_processed_chunks()
+        print(f"Resultado de restauración processed_chunks desde R2: {res}")
         sys.exit(0 if res["failed"] == 0 else 1)
 
     parser.print_help()
