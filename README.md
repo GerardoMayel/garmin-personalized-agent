@@ -203,6 +203,7 @@ WHERE calendar_date BETWEEN '2026-09-01' AND '2026-09-28';
   - **Exclusión Estricta de Ceros y Nulos**: Los días sin telemetría, valores nulos y ceros NO promedian ni suman al divisor; el promedio se calcula dividiendo estrictamente entre el número de días con valores válidos y reales disponibles.
   - **Variables Consolidadas**: Desglose pareado (`avg_<metric>_last_7d` vs `forecast_<metric>_next_7d` y conteo de días válidos) para las 14 métricas biométricas: pasos, estrés autónomo diario, frecuencia cardíaca en reposo (RHR), puntuación de sueño, horas de sueño, HRV rMSSD, calorías activas/reposo/totales, edad biológica, brecha de rejuvenecimiento y FC media por disciplina (carrera, fuerza/gym, caminata).
 
+<<<<<<< HEAD
 ### Operaciones de Base de Datos
 ```bash
 # Construir o refrescar la tabla de reales consolidados:
@@ -429,6 +430,7 @@ uv run python -m src.ingestion.sync_pipeline --days-back 15 --force --r2-sync
 uv run python -m src.ingestion.sync_pipeline --date 2026-09-20 --r2-sync
 ```
 
+<<<<<<< HEAD
 ### 5. Almacenamiento en la Nube con Cloudflare R2
 Persistencia y recuperación rápida de particiones raw y base de datos histórica mediante `src.common.r2_storage`:
 ```bash
