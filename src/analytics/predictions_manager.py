@@ -245,10 +245,17 @@ class BiometricPredictionsManager:
             import sqlite3
 
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    "DELETE FROM biometric_forecasts WHERE target_date >= ?",
-                    (str(target_dates[0]),),
-                )
+                if metrics:
+                    placeholders = ",".join("?" for _ in metrics)
+                    conn.execute(
+                        f"DELETE FROM biometric_forecasts WHERE target_date >= ? AND metric IN ({placeholders})",
+                        (str(target_dates[0]), *metrics),
+                    )
+                else:
+                    conn.execute(
+                        "DELETE FROM biometric_forecasts WHERE target_date >= ?",
+                        (str(target_dates[0]),),
+                    )
 
         active_metrics = metrics or SUPPORTED_PREDICTION_METRICS
         existing_df = self.load_existing_predictions()
@@ -343,7 +350,7 @@ class BiometricPredictionsManager:
                     "last_updated": gen_date_str,
                     "model_type": "Ensemble_Prophet_HoltWinters",
                     "metrics": [
-                        m for m in active_metrics if (models_dir / f"{m}_ensemble.joblib").exists()
+                        m for m in SUPPORTED_PREDICTION_METRICS if (models_dir / f"{m}_ensemble.joblib").exists()
                     ],
                 }
                 with open(models_dir / "models_registry.json", "w", encoding="utf-8") as rf:
