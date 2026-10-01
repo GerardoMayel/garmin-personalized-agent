@@ -117,17 +117,17 @@ def compute_physiological_bounds(
             cap = floor + 15.0
 
     elif metric_name == "daily_avg_stress":
-        # Autonomic stress: strictly bounded within homeostatic physiological envelope.
-        # Athlete's empirical baseline centers at ~26-29, clinical normal recovery range [20, 34].
+        # Autonomic stress: Empirical baseline bounds around mu +/- 1.5 sigma
+        # Athlete's empirical telemetry ranges between 20 and 36, centering organically around ~26-29.
         obs_mean = float(np.mean(valid))
         obs_std = float(np.std(valid)) if len(valid) > 1 else 3.0
         if np.isnan(obs_std) or obs_std <= 0:
             obs_std = 3.0
 
         floor = max(18.0, min(obs_min, round(obs_mean - 1.5 * obs_std, 1)))
-        cap = min(33.5, max(28.0, round(obs_mean + 1.2 * obs_std, 1)))
+        cap = min(36.0, max(34.0, round(obs_mean + 1.5 * obs_std, 1)))
         if cap - floor < 6.0:
-            cap = min(34.0, floor + 7.0)
+            cap = min(37.0, floor + 8.0)
 
     elif metric_name == "sleep_score":
         # Garmin standard sleep score scale (0-100) with clinical minimum floor
@@ -350,12 +350,12 @@ class GarminProphetForecaster:
         p_df = self._prepare_prophet_df(df, target_col, regressors)
         self.target_col = target_col
 
-        # Weekly seasonality in Prophet requires >= 14 observations; disable for ultra-short series or autonomic stress
+        # Weekly seasonality in Prophet requires >= 14 observations; disable for ultra-short series
         effective_weekly = self.weekly_seasonality
-        if (len(p_df) < 14 or target_col == "daily_avg_stress") and effective_weekly:
+        if len(p_df) < 14 and effective_weekly:
             effective_weekly = False
             logger.info(
-                f"Prophet: Disabled weekly seasonality for '{target_col}' (observations={len(p_df)} or autonomic metric)."
+                f"Prophet: Disabled weekly seasonality for '{target_col}' (observations={len(p_df)} < 14)."
             )
 
         effective_growth = (
@@ -513,8 +513,8 @@ class HoltWintersForecaster:
         # Interpolate missing values cleanly
         y_clean = y_vals.interpolate(method="linear").ffill().bfill().to_numpy(dtype=float)
 
-        # Weekly seasonality if >= 14 observations (disabled for daily_avg_stress to ensure stationary SES level)
-        seasonal = "add" if (len(y_clean) >= 14 and target_col != "daily_avg_stress") else None
+        # Weekly seasonality if >= 14 observations
+        seasonal = "add" if len(y_clean) >= 14 else None
         seasonal_periods = 7 if seasonal else None
         trend = None if target_col == "daily_avg_stress" else "add"
         damped = self.damped_trend if trend is not None else False
